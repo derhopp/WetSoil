@@ -166,8 +166,10 @@ class Circuit:
             new["precipitation_sensor"] != previous["precipitation_sensor"]
             or new["precipitation_sensor_kind"] != previous["precipitation_sensor_kind"]
         )
-        if self.running and new["valves"] != previous["valves"]:
-            raise ValueError("stop_before_changing_valves")
+        if self.running and any(
+            new[key] != previous[key] for key in new if key != "automatic"
+        ):
+            raise ValueError("stop_before_changing_safety_parameters")
         if self.running and self.kind == "auto" and not new["automatic"]:
             await self.stop("disabled", abort=True)
         async with self.lock:

@@ -34,6 +34,7 @@ class WetSoilNumber(WetSoilEntity, NumberEntity):
         return self.circuit.config[self._key]
 
     async def async_set_native_value(self, value):
-        settings = {**self.circuit.config, self._key: value}
-        valid = validate_all(self.hass, self.circuit.entry.entry_id, settings)
-        await self.circuit.update_config(valid)
+        async with self.hass.data["wetsoil_config_lock"]:
+            settings = {**self.circuit.config, self._key: value}
+            valid = validate_all(self.hass, self.circuit.entry.entry_id, settings)
+            await self.circuit.update_config(valid)
