@@ -1,70 +1,369 @@
-/* WetSoil initial card. No hardware commands are emitted. */
-class WetSoilCard extends HTMLElement {
-  setConfig(value) { this.config = value || {}; this.render(); }
-  set hass(value) {
-    this._hass = value;
-    if (!this._loading && !this._loaded) this.refresh();
+/* WetSoil custom Lovelace card. Backend is the source of truth for all settings. */
+const LANG = {
+  en: {
+    title:"WetSoil",select:"Circuit",status:"Status",auto:"Automatic irrigation",
+    computed:"Weather calculation",planned:"Scheduled duration",remaining:"Remaining",
+    start:"Manual start",stop:"Immediate stop",weather:"Weather",settings:"Settings",
+    valves:"Valves",schedule:"Schedule",parameters:"Calculation parameters",
+    measured:"Observed rain, last 3 days",forecast:"Forecast rain today",temp:"Max temperature",
+    raining:"Currently raining",quality:"Data quality",reason:"Reason",saved:"Settings saved",
+    error:"Error",save:"Save settings",events:"Recent events",seconds:"seconds",
+    weather_entity:"Weather entity",rain_sensor:"Rain binary sensor",
+    precipitation_sensor:"Observed precipitation sensor",
+    precipitation_sensor_kind:"Precipitation sensor type",
+    base_seconds:"Base watering duration (seconds)",
+    max_rain_today:"Maximum forecast rain (mm)",
+    max_rain_3d:"Maximum 3-day average (mm/day)",
+    min_temp:"Lower temperature threshold (°C)",
+    max_temp:"Upper temperature threshold (°C)",
+    max_runtime:"Maximum safety runtime (seconds)",
+    start_mode:"Start mode",time:"Absolute time",chained:"After predecessor",
+    predecessor:"Predecessor circuit",start_time:"Start time",weekdays:"Allowed weekdays",
+    months:"Allowed months",add:"Add valve",remove:"Remove",none:"None",
+    weekdayNames:["Mon","Tue","Wed","Thu","Fri","Sat","Sun"],
+    monthNames:["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"],
+    history:"Actual precipitation",unavailable:"Unavailable",refresh:"Refresh",
+    factor:"Calculation factors",sensorTotal:"Cumulative total",sensorDaily:"Daily total"
+  },
+  de: {
+    title:"WetSoil",select:"Bewässerungskreis",status:"Status",auto:"Automatik aktiviert",
+    computed:"Wetterabhängig berechnet",planned:"Tatsächlich geplant",remaining:"Restlaufzeit",
+    start:"Manueller Start",stop:"Sofort-Stopp",weather:"Wetter",settings:"Einstellungen",
+    valves:"Ventile",schedule:"Zeitplanung",parameters:"Berechnungsparameter",
+    measured:"Gemessener Regen, letzte 3 Tage",forecast:"Regenprognose heute",temp:"Maximale Temperatur",
+    raining:"Aktueller Regen",quality:"Datenqualität",reason:"Sperrgrund",saved:"Einstellungen gespeichert",
+    error:"Fehler",save:"Einstellungen speichern",events:"Letzte Ereignisse",seconds:"Sekunden",
+    weather_entity:"Wetter-Entity",rain_sensor:"Regen-Binary-Sensor",
+    precipitation_sensor:"Gemessener Niederschlagssensor",
+    precipitation_sensor_kind:"Art der Niederschlagsmessung",
+    base_seconds:"Basisberegnungszeit (Sekunden)",
+    max_rain_today:"Maximale Regenprognose (mm)",
+    max_rain_3d:"Maximaler 3-Tage-Durchschnitt (mm/Tag)",
+    min_temp:"Untere Temperaturgrenze (°C)",
+    max_temp:"Obere Temperaturgrenze (°C)",
+    max_runtime:"Maximale Sicherheitslaufzeit (Sekunden)",
+    start_mode:"Startmodus",time:"Absolute Uhrzeit",chained:"Nach Vorgänger",
+    predecessor:"Vorgängerinstanz",start_time:"Startuhrzeit",weekdays:"Zulässige Wochentage",
+    months:"Zulässige Monate",add:"Ventil hinzufügen",remove:"Entfernen",none:"Keiner",
+    weekdayNames:["Mo","Di","Mi","Do","Fr","Sa","So"],
+    monthNames:["Jan","Feb","Mär","Apr","Mai","Jun","Jul","Aug","Sep","Okt","Nov","Dez"],
+    history:"Tatsächlicher Niederschlag",unavailable:"Nicht verfügbar",refresh:"Aktualisieren",
+    factor:"Berechnungsfaktoren",sensorTotal:"Kumulativer Zähler",sensorDaily:"Tagessumme"
   }
-  getCardSize() { return 3; }
+};
+
+const STYLES = [
+  ".root{padding:16px}",
+  ".heading{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}",
+  ".metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px;margin:12px 0}",
+  ".metric{border:1px solid var(--divider-color);border-radius:9px;padding:9px}",
+  ".metric small{display:block;opacity:.75;margin-bottom:5px}",
+  ".actions,.horizontal{display:flex;flex-wrap:wrap;align-items:center;gap:10px}",
+  "button{font:inherit;cursor:pointer;background:var(--primary-color);color:white;border:0;border-radius:6px;padding:8px 14px}",
+  "button:disabled{opacity:.5;cursor:default}",
+  ".danger{background:var(--error-color)}",
+  "label{display:block;margin:10px 0}",
+  "input[type=number],input[type=time],select{box-sizing:border-box;width:100%;background:var(--card-background-color);color:var(--primary-text-color);border:1px solid var(--divider-color);border-radius:6px;padding:8px;font:inherit}",
+  "ha-entity-picker{display:block;max-width:100%;margin:6px 0}",
+  "details{margin-top:14px}",
+  "details details{padding:8px;border-bottom:1px solid var(--divider-color)}",
+  ".error{color:var(--error-color)}",
+  ".checks{display:flex;flex-wrap:wrap;gap:8px}",
+  ".checks label{margin:0;border:1px solid var(--divider-color);border-radius:5px;padding:7px}",
+  "summary{cursor:pointer;font-weight:600;margin-bottom:8px}"
+].join("");
+
+function elem(tag, text=null, className=null) {
+  const node=document.createElement(tag);
+  if (text!==null) node.textContent=String(text);
+  if (className) node.className=className;
+  return node;
+}
+
+class WetSoilCard extends HTMLElement {
+  setConfig(config) {
+    this._config = config || {};
+    this._render();
+  }
+  set hass(hass) {
+    this._hass = hass;
+    if (!this._loading && (!this._loaded || (!this._editing && Date.now()-(this._at||0)>10000))) {
+      this._refresh();
+    }
+  }
+  getCardSize() { return 8; }
   static getConfigElement() { return document.createElement("wetsoil-card-editor"); }
   static getStubConfig() { return {}; }
-  async refresh() {
-    this._loading = true;
-    try {
-      this._circuits = await this._hass.callWS({type:"wetsoil/list"});
-      this._loaded = true;
-    } catch (error) { this._error = String(error); }
-    this._loading = false;
-    this.render();
+  _t(key) {
+    const lang=this._hass?.language?.startsWith("de")?"de":"en";
+    return LANG[lang][key] || key;
   }
-  render() {
-    if (!this.config || !this._hass) return;
-    const c = this._circuits?.find(x=>x.entry_id===this.config.entry_id) || this._circuits?.[0];
-    const de = this._hass.language?.startsWith("de");
-    const title = de ? "Bewässerungssteuerung noch nicht verfügbar" : "Irrigation control not yet available";
-    this.innerHTML = "";
-    const card = document.createElement("ha-card");
-    const content = document.createElement("div");
-    content.style.padding = "16px";
-    const heading = document.createElement("h2");
-    heading.textContent = "WetSoil" + (c ? " — " + c.name : "");
-    const state = document.createElement("p");
-    state.textContent = this._error || title;
-    const info = document.createElement("p");
-    info.textContent = de ? "Automatische und manuelle Ventilsteuerung sind sicherheitshalber gesperrt." :
-      "Automatic and manual valve control are disabled for safety.";
-    content.append(heading,state,info);
-    card.append(content);
+  async _refresh() {
+    if (!this._hass || this._loading) return;
+    this._loading=true;
+    try {
+      this._circuits=await this._hass.callWS({type:"wetsoil/list"});
+      this._loaded=true;
+      this._at=Date.now();
+    } catch(error) { this._error=String(error); }
+    this._loading=false;
+    this._render();
+  }
+  _current() {
+    return this._circuits?.find(c=>c.entry_id===this._config?.entry_id)
+      || this._circuits?.[0];
+  }
+  async _send(type, extra={}) {
+    const circuit=this._current();
+    if (!circuit) return;
+    try {
+      await this._hass.callWS({type:"wetsoil/"+type,entry_id:circuit.entry_id,...extra});
+      this._error="";
+      this._notice=this._t("saved");
+    } catch(error) {
+      this._notice="";
+      this._error=String(error);
+    }
+    this._editing=false;
+    await this._refresh();
+  }
+  _metric(host,key,value,unit="") {
+    const container=elem("div",null,"metric");
+    container.append(elem("small",this._t(key)));
+    const text=value===null || value===undefined?this._t("unavailable"):String(value);
+    container.append(elem("strong",text+((value===null || value===undefined)?"":unit)));
+    host.append(container);
+  }
+  _field(host,key,config,domain) {
+    const label=elem("label",this._t(key));
+    const picker=elem("ha-entity-picker");
+    picker.hass=this._hass;
+    picker.value=config[key]||"";
+    picker.includeDomains=[domain];
+    picker.addEventListener("value-changed",event=>{
+      config[key]=event.detail.value||null;
+      this._editing=true;
+    });
+    label.append(picker);
+    host.append(label);
+  }
+  _numeric(host,key,config) {
+    const label=elem("label",this._t(key));
+    const input=elem("input");
+    input.type="number";input.step="any";
+    input.value=String(config[key]);
+    input.addEventListener("change",()=>{
+      config[key]=input.value===""?null:Number(input.value);
+      this._editing=true;
+    });
+    label.append(input);host.append(label);
+  }
+  _choice(host,key,options,config) {
+    const label=elem("label",this._t(key));
+    const select=elem("select");
+    for(const [value,text] of options) {
+      const option=elem("option",text);
+      option.value=value;
+      option.selected=config[key]===value;
+      select.append(option);
+    }
+    select.addEventListener("change",()=>{
+      config[key]=select.value;
+      if (key==="start_mode") {
+        config.predecessor=null;
+        this._editing=true;
+      }
+    });
+    label.append(select);host.append(label);
+    return select;
+  }
+  _checks(host,key,range,config,labels) {
+    host.append(elem("p",this._t(key)));
+    const row=elem("div",null,"checks");
+    for(const number of range) {
+      const label=elem("label");
+      const input=elem("input");
+      input.type="checkbox";
+      input.checked=config[key].includes(number);
+      input.addEventListener("change",()=>{
+        config[key]=Array.from(row.querySelectorAll("input:checked")).map(el=>Number(el.value));
+        this._editing=true;
+      });
+      input.value=String(number);
+      label.append(input,document.createTextNode(" "+labels[number-(key==="months"?1:0)]));
+      row.append(label);
+    }
+    host.append(row);
+  }
+  _render() {
+    if (!this._config || !this._hass) return;
+    const c=this._current();
+    this.replaceChildren();
+    const card=elem("ha-card");
+    const style=elem("style");style.textContent=STYLES;
+    const root=elem("div",null,"root");
+    const heading=elem("div",null,"heading");
+    heading.append(elem("h2",this._t("title")+(c?" — "+c.name:"")));
+    const reload=elem("button",this._t("refresh"));
+    reload.onclick=()=>{this._editing=false;this._refresh();};
+    heading.append(reload);root.append(heading);
+    if (!c) {
+      root.append(elem("p",this._error||this._t("select")));
+      card.append(style,root);this.append(card);return;
+    }
+    const metrics=elem("div",null,"metrics");
+    for(const [key,value,unit] of [
+      ["status",c.status,""],["computed",c.computed_seconds," s"],
+      ["planned",c.planned_seconds," s"],["remaining",Math.round(c.remaining_seconds||0)," s"],
+      ["temp",c.temperature," °C"],["forecast",c.rain_today," mm"],
+      ["measured",c.rain_3d," mm/day"],["raining",c.raining,""],
+      ["quality",c.quality,""],["reason",c.reason,""]]) {
+        this._metric(metrics,key,value,unit);
+      }
+    root.append(metrics);
+    const active=elem("label");
+    const check=elem("input");check.type="checkbox";check.checked=c.config.automatic;
+    check.onchange=()=>{
+      check.disabled=true;
+      this._send("action",{action:check.checked?"enable":"disable"});
+    };
+    active.append(check,document.createTextNode(" "+this._t("auto")));
+    root.append(active);
+    const actions=elem("div",null,"actions");
+    const start=elem("button",this._t("start"));
+    start.onclick=()=>this._send("action",{action:"start"});
+    const stop=elem("button",this._t("stop"),"danger");
+    stop.onclick=()=>this._send("action",{action:"stop"});
+    actions.append(start,stop);root.append(actions);
+    if(this._error)root.append(elem("p",this._error,"error"));
+    if(this._notice)root.append(elem("p",this._notice));
+    root.append(elem("h4",this._t("events")));
+    const history=elem("ul");
+    for(const event of (c.events||[]).slice(-8).reverse()) {
+      history.append(elem("li",event));
+    }
+    root.append(history);
+    const details=elem("details");
+    details.open=!!this._editing;
+    details.ontoggle=()=>{
+      this._editing=details.open;
+    };
+    details.append(elem("summary",this._t("settings")));
+    const config=JSON.parse(JSON.stringify(c.config));
+    const weather=elem("details");weather.open=true;
+    weather.append(elem("summary",this._t("weather")));
+    this._field(weather,"weather_entity",config,"weather");
+    this._field(weather,"rain_sensor",config,"binary_sensor");
+    this._field(weather,"precipitation_sensor",config,"sensor");
+    this._choice(weather,"precipitation_sensor_kind",[
+      ["total",this._t("sensorTotal")],["daily",this._t("sensorDaily")]],config);
+    details.append(weather);
+    const valves=elem("details");
+    valves.append(elem("summary",this._t("valves")));
+    const valveList=elem("div");
+    const addValve=(value)=>{
+      const row=elem("div",null,"horizontal");
+      const picker=elem("ha-entity-picker");
+      picker.hass=this._hass;picker.includeDomains=["switch"];picker.value=value||"";
+      picker.style.flex="1 1 180px";
+      picker.addEventListener("value-changed",()=>{
+        row.dataset.value=picker.value;
+        this._editing=true;
+      });
+      row.dataset.value=value||"";
+      const remove=elem("button",this._t("remove"));
+      remove.onclick=()=>{row.remove();this._editing=true;};
+      row.append(picker,remove);valveList.append(row);
+    };
+    config.valves.forEach(addValve);
+    const add=elem("button",this._t("add"));
+    add.onclick=()=>{addValve("");this._editing=true;};
+    valves.append(valveList,add);details.append(valves);
+    const params=elem("details");
+    params.append(elem("summary",this._t("parameters")));
+    for(const key of ["base_seconds","max_rain_today","max_rain_3d",
+                       "min_temp","max_temp","max_runtime"]) this._numeric(params,key,config);
+    details.append(params);
+    const schedule=elem("details");
+    schedule.append(elem("summary",this._t("schedule")));
+    this._checks(schedule,"weekdays",[0,1,2,3,4,5,6],config,this._t("weekdayNames"));
+    this._checks(schedule,"months",[1,2,3,4,5,6,7,8,9,10,11,12],config,this._t("monthNames"));
+    const modeSelect=this._choice(schedule,"start_mode",[
+      ["time",this._t("time")],["chained",this._t("chained")]],config);
+    const timeLabel=elem("label",this._t("start_time"));
+    const timeInput=elem("input");timeInput.type="time";timeInput.value=config.start_time;
+    timeInput.onchange=()=>{config.start_time=timeInput.value;this._editing=true;};
+    timeLabel.append(timeInput);
+    const predecessorLabel=elem("label",this._t("predecessor"));
+    const predecessor=elem("select");
+    for (const [id,name] of [
+      ["",this._t("none")],
+      ...(this._circuits||[]).filter(x=>x.entry_id!==c.entry_id)
+        .map(x=>[x.entry_id,x.name])]) {
+      const option=elem("option",name);
+      option.value=id;option.selected=(config.predecessor||"")===id;
+      predecessor.append(option);
+    }
+    predecessor.onchange=()=>{config.predecessor=predecessor.value||null;this._editing=true;};
+    predecessorLabel.append(predecessor);
+    const showMode=()=>{
+      timeLabel.hidden=modeSelect.value!=="time";
+      predecessorLabel.hidden=modeSelect.value!=="chained";
+    };
+    modeSelect.addEventListener("change",()=>{
+      config.start_mode=modeSelect.value;
+      if(config.start_mode==="time")config.predecessor=null;
+      showMode();
+      this._editing=true;
+    });
+    schedule.append(timeLabel,predecessorLabel);showMode();
+    details.append(schedule);
+    const save=elem("button",this._t("save"));
+    save.onclick=()=>{
+      config.valves=Array.from(valveList.children).map(x=>x.dataset.value).filter(Boolean);
+      if (config.start_mode==="chained") config.predecessor=predecessor.value||null;
+      else config.predecessor=null;
+      this._send("update",{config});
+    };
+    details.append(save);
+    root.append(details);
+    card.append(style,root);
     this.append(card);
   }
 }
+
 class WetSoilCardEditor extends HTMLElement {
-  setConfig(value) { this.config = value || {}; this.render(); }
-  set hass(value) { this._hass = value; this.render(); }
-  async render() {
-    if (!this._hass || !this.config) return;
-    let circuits = [];
-    try { circuits = await this._hass.callWS({type:"wetsoil/list"}); }
-    catch (e) { this.textContent = String(e); return; }
-    this.replaceChildren();
-    const select = document.createElement("select");
-    for(const c of circuits) {
-      const option = document.createElement("option");
-      option.value = c.entry_id;
-      option.textContent = c.name;
-      option.selected = c.entry_id === this.config.entry_id;
-      select.append(option);
-    }
-    select.addEventListener("change", ()=>{
-      this.config = {...this.config, entry_id:select.value};
-      this.dispatchEvent(new CustomEvent("config-changed",{
-        detail:{config:this.config},bubbles:true,composed:true
-      }));
-    });
-    this.append(select);
+  setConfig(config) {this._config=config||{};this._render();}
+  set hass(hass) {this._hass=hass;this._render();}
+  async _render() {
+    if (!this._hass || !this._config || this._busy) return;
+    this._busy=true;
+    try {
+      const circuits=await this._hass.callWS({type:"wetsoil/list"});
+      this.replaceChildren();
+      const label=elem("label","WetSoil circuit / Bewässerungskreis");
+      const selector=elem("select");
+      for(const circuit of circuits) {
+        const option=elem("option",circuit.name);
+        option.value=circuit.entry_id;
+        option.selected=circuit.entry_id===this._config.entry_id;
+        selector.append(option);
+      }
+      selector.onchange=()=>{
+        this._config={...this._config,entry_id:selector.value};
+        this.dispatchEvent(new CustomEvent("config-changed",{
+          detail:{config:this._config},bubbles:true,composed:true
+        }));
+      };
+      label.append(selector);this.append(label);
+    } catch(err){this.textContent=String(err);}
+    finally{this._busy=false;}
   }
 }
 customElements.define("wetsoil-card", WetSoilCard);
 customElements.define("wetsoil-card-editor", WetSoilCardEditor);
-window.customCards = window.customCards || [];
-window.customCards.push({type:"wetsoil-card",name:"WetSoil",description:"Irrigation (development preview)"});
+window.customCards=window.customCards||[];
+window.customCards.push({
+  type:"wetsoil-card",name:"WetSoil",
+  description:"Weather-aware irrigation circuits and configuration"
+});
