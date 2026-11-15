@@ -1,18 +1,22 @@
-"""Non-operational buttons: fail closed rather than simulate valve action."""
+"""Manual start and stop buttons."""
 from homeassistant.components.button import ButtonEntity
-from homeassistant.exceptions import HomeAssistantError
+from .entity import WetSoilEntity
+
 
 async def async_setup_entry(hass, entry, async_add_entities):
-    async_add_entities([WetSoilButton(entry, "start", "Manual start"),
-                        WetSoilButton(entry, "stop", "Stop")])
+    circuit = hass.data["wetsoil"][entry.entry_id]
+    async_add_entities([
+        WetSoilButton(circuit, "manual_start", "Manual start"),
+        WetSoilButton(circuit, "stop", "Immediate stop"),
+    ])
 
-class WetSoilButton(ButtonEntity):
-    _attr_has_entity_name = True
 
-    def __init__(self, entry, key, name):
-        self._attr_unique_id = f"{entry.unique_id}_{key}"
-        self._attr_name = name
-        self._attr_device_info = {"identifiers": {("wetsoil", entry.entry_id)}, "name": entry.title}
+class WetSoilButton(WetSoilEntity, ButtonEntity):
+    def __init__(self, circuit, key, name):
+        super().__init__(circuit, key, name)
 
     async def async_press(self):
-        raise HomeAssistantError("Valve control is not implemented")
+        if self._key == "manual_start":
+            await self.circuit.start(manual=True)
+        else:
+            await self.circuit.stop("manual_stop", abort=True)

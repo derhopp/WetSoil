@@ -1,63 +1,69 @@
-"""WetSoil integration entrypoint: conservative prototype."""
+"""WetSoil Home Assistant integration and authenticated frontend API."""
 from __future__ import annotations
 
 from pathlib import Path
 import logging
 import voluptuous as vol
+
 from homeassistant.components import websocket_api
 from homeassistant.components.http import StaticPathConfig
 from homeassistant.core import callback
-from homeassistant.helpers.storage import Store
+from homeassistant.helpers import device_registry as dr
 
-from .const import DOMAIN, defaults, validate_config
+from .const import DOMAIN
+from .controller import Circuit
+from .validation import validate_all
 
 _LOGGER = logging.getLogger(__name__)
-PLATFORMS = ("sensor", "switch", "button", "binary_sensor")
+PLATFORMS = ("sensor", "binary_sensor", "switch", "button", "number")
 
 
 async def async_setup(hass, config):
-    """Register frontend resources and authenticated configuration API."""
+    """Register a single frontend URL and authenticated WebSocket commands."""
     hass.data.setdefault(DOMAIN, {})
     await hass.http.async_register_static_paths([
-        StaticPathConfig("/wetsoil/wetsoil-card.js",
-            str(Path(__file__).parent / "frontend" / "wetsoil-card.js"), True)
+        StaticPathConfig(
+            "/wetsoil/wetsoil-card.js",
+            str(Path(__file__).parent / "frontend" / "wetsoil-card.js"),
+            cache_headers=False,
+        )
     ])
-    websocket_api.async_register_command(hass, ws_list)
-    websocket_api.async_register_command(hass, ws_update)
+    for command in (ws_list, ws_update, ws_action):
+        websocket_api.async_register_command(hass, command)
     return True
 
 
 async def async_setup_entry(hass, entry):
-    """Initialize a new circuit in the disabled, safe state."""
-    store = Store(hass, 1, f"wetsoil.{entry.entry_id}")
-    saved = await store.async_load() or {}
-    try:
-        settings = validate_config(saved.get("config", defaults()))
-    except ValueError:
-        _LOGGER.exception("Invalid stored config for %s", entry.entry_id)
-        settings = defaults()
-    hass.data[DOMAIN][entry.entry_id] = {"entry": entry, "store": store, "config": settings}
+    """Load a circuit and expose native Home Assistant entities."""
+    circuit = Circuit(hass, entry)
+    await circuit.setup()
+    hass.data[DOMAIN][entry.entry_id] = circuit
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    area = entry.data.get("area_id")
+    if area:
+        registry = dr.async_get(hass)
+        device = registry.async_get_device(identifiers={(DOMAIN, entry.entry_id)})
+        if device and not device.area_id:
+            registry.async_update_device(device.id, area_id=area)
     return True
 
 
 async def async_unload_entry(hass, entry):
-    """Fail closed: initial prototype never operates hardware."""
-    ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
-    if ok:
+    """Fail closed before the entities are removed."""
+    circuit = hass.data[DOMAIN][entry.entry_id]
+    await circuit.shutdown()
+    unloaded = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+    if unloaded:
         hass.data[DOMAIN].pop(entry.entry_id, None)
-    return ok
+    return unloaded
 
 
 @websocket_api.websocket_command({vol.Required("type"): "wetsoil/list"})
 @callback
 def ws_list(hass, connection, msg):
-    """Read currently configured circuits."""
+    """Read live snapshots, including centrally stored settings."""
     connection.send_result(msg["id"], [
-        {"entry_id": key, "name": val["entry"].title,
-         "area_id": val["entry"].data.get("area_id"), "config": val["config"],
-         "status": "not_implemented"}
-        for key, val in hass.data[DOMAIN].items()
+        circuit.snapshot() for circuit in hass.data[DOMAIN].values()
     ])
 
 
@@ -68,7 +74,7 @@ def ws_list(hass, connection, msg):
 })
 @websocket_api.async_response
 async def ws_update(hass, connection, msg):
-    """Persist validated changes; only HA administrators may modify them."""
+    """Require administrator privileges and validate globally before saving."""
     if not connection.user.is_admin:
         connection.send_error(msg["id"], "unauthorized", "Admin required")
         return
@@ -77,17 +83,50 @@ async def ws_update(hass, connection, msg):
         connection.send_error(msg["id"], "not_found", "Circuit not found")
         return
     try:
-        settings = validate_config(msg["config"])
-        for key, value in hass.data[DOMAIN].items():
-            if key != msg["entry_id"] and set(value["config"]["valves"]) & set(settings["valves"]):
-                raise ValueError("valve_already_assigned")
-        if settings["start_mode"] == "chained":
-            raise ValueError("chaining_not_implemented")
-        if settings["automatic"]:
-            raise ValueError("automatic_irrigation_not_implemented")
-        await circuit["store"].async_save({"config": settings})
-    except ValueError as exc:
-        connection.send_error(msg["id"], "invalid_config", str(exc))
+        settings = validate_all(hass, msg["entry_id"], msg["config"])
+        if settings["automatic"] and not (
+            settings["weather_entity"]
+            and settings["valves"]
+            and circuit.weather.quality == "ready"
+        ):
+            raise ValueError("automatic_requires_complete_weather_history_and_valves")
+        await circuit.update_config(settings)
+    except (ValueError, RuntimeError) as err:
+        connection.send_error(msg["id"], "invalid_config", str(err))
         return
-    circuit["config"] = settings
-    connection.send_result(msg["id"], {"config": settings})
+    connection.send_result(msg["id"], circuit.snapshot())
+
+
+@websocket_api.websocket_command({
+    vol.Required("type"): "wetsoil/action",
+    vol.Required("entry_id"): str,
+    vol.Required("action"): vol.In(("start", "stop", "enable", "disable")),
+})
+@websocket_api.async_response
+async def ws_action(hass, connection, msg):
+    """All hardware and configuration actions require admin privileges."""
+    if not connection.user.is_admin:
+        connection.send_error(msg["id"], "unauthorized", "Admin required")
+        return
+    circuit = hass.data[DOMAIN].get(msg["entry_id"])
+    if circuit is None:
+        connection.send_error(msg["id"], "not_found", "Circuit not found")
+        return
+    try:
+        command = msg["action"]
+        if command == "start":
+            await circuit.start(manual=True)
+        elif command == "stop":
+            await circuit.stop("manual_stop", abort=True)
+        else:
+            settings = {**circuit.config, "automatic": command == "enable"}
+            settings = validate_all(hass, msg["entry_id"], settings)
+            if settings["automatic"] and (
+                circuit.weather.quality != "ready" or not settings["valves"]
+            ):
+                raise ValueError("automatic_requires_complete_configuration")
+            await circuit.update_config(settings)
+    except (ValueError, RuntimeError) as err:
+        connection.send_error(msg["id"], "action_failed", str(err))
+        return
+    connection.send_result(msg["id"], circuit.snapshot())

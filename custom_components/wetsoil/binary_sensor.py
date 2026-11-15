@@ -1,14 +1,26 @@
-"""Safe default runtime sensor."""
+"""Live WetSoil binary status sensors."""
 from homeassistant.components.binary_sensor import BinarySensorEntity
+from .entity import WetSoilEntity
+
 
 async def async_setup_entry(hass, entry, async_add_entities):
-    async_add_entities([WetSoilRunning(entry)])
+    circuit = hass.data["wetsoil"][entry.entry_id]
+    async_add_entities([
+        WetSoilBinary(circuit, "running", "Watering"),
+        WetSoilBinary(circuit, "allowed", "Automatic watering allowed"),
+        WetSoilBinary(circuit, "raining", "Currently raining"),
+    ])
 
-class WetSoilRunning(BinarySensorEntity):
-    _attr_has_entity_name = True
-    _attr_name = "Watering"
-    _attr_is_on = False
 
-    def __init__(self, entry):
-        self._attr_unique_id = f"{entry.unique_id}_running"
-        self._attr_device_info = {"identifiers": {("wetsoil", entry.entry_id)}, "name": entry.title}
+class WetSoilBinary(WetSoilEntity, BinarySensorEntity):
+    def __init__(self, circuit, key, name):
+        super().__init__(circuit, key, name)
+
+    @property
+    def is_on(self):
+        if self._key == "running":
+            return self.circuit.running
+        if self._key == "allowed":
+            result = self.circuit.planned()
+            return result > 0 if result is not None else None
+        return self.circuit.weather.raining
