@@ -23,7 +23,9 @@ const LANG = {
     weekdayNames:["Mon","Tue","Wed","Thu","Fri","Sat","Sun"],
     monthNames:["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"],
     history:"Actual precipitation",unavailable:"Unavailable",refresh:"Refresh",
-    factor:"Calculation factors",next:"Next start",sensorTotal:"Cumulative total",sensorDaily:"Daily total"
+    factor:"Calculation factors",next:"Next start",sensorTotal:"Cumulative total",sensorDaily:"Daily total",
+    selectRequired:"Select a WetSoil circuit in the card editor before using this card.",
+    invalidSelection:"The selected WetSoil circuit no longer exists. Choose a valid circuit in the card editor."
   },
   de: {
     title:"WetSoil",select:"Bewässerungskreis",status:"Status",auto:"Automatik aktiviert",
@@ -48,7 +50,9 @@ const LANG = {
     weekdayNames:["Mo","Di","Mi","Do","Fr","Sa","So"],
     monthNames:["Jan","Feb","Mär","Apr","Mai","Jun","Jul","Aug","Sep","Okt","Nov","Dez"],
     history:"Tatsächlicher Niederschlag",unavailable:"Nicht verfügbar",refresh:"Aktualisieren",
-    factor:"Berechnungsfaktoren",next:"Nächster Start",sensorTotal:"Kumulativer Zähler",sensorDaily:"Tagessumme"
+    factor:"Berechnungsfaktoren",next:"Nächster Start",sensorTotal:"Kumulativer Zähler",sensorDaily:"Tagessumme",
+    selectRequired:"Bitte zuerst im Card-Editor einen WetSoil-Bewässerungskreis auswählen.",
+    invalidSelection:"Der ausgewählte Bewässerungskreis existiert nicht mehr. Bitte im Card-Editor neu auswählen."
   }
 };
 
@@ -93,7 +97,7 @@ class WetSoilCard extends HTMLElement {
   }
   getCardSize() { return 8; }
   static getConfigElement() { return document.createElement("wetsoil-card-editor"); }
-  static getStubConfig() { return {}; }
+  static getStubConfig() { return {entry_id:""}; }
   _t(key) {
     const lang=this._hass?.language?.startsWith("de")?"de":"en";
     return LANG[lang][key] || key;
@@ -110,14 +114,21 @@ class WetSoilCard extends HTMLElement {
     this._render();
   }
   _current() {
-    return this._circuits?.find(c=>c.entry_id===this._config?.entry_id)
-      || this._circuits?.[0];
+    // Never redirect reads or writes to a different circuit.
+    const entryId = this._config?.entry_id;
+    if (typeof entryId !== "string" || !entryId) return undefined;
+    return this._circuits?.find(c => c.entry_id === entryId);
   }
   async _send(type, extra={}) {
     const circuit=this._current();
-    if (!circuit) return;
+    if (!circuit || !this._hass || !this._config?.entry_id) {
+      this._error=this._t("selectRequired");
+      this._render();
+      return;
+    }
     try {
-      await this._hass.callWS({type:"wetsoil/"+type,entry_id:circuit.entry_id,...extra});
+      // Prevent extra fields from overriding this card's selected entry.
+      await this._hass.callWS({type:"wetsoil/"+type,...extra,entry_id:circuit.entry_id});
       this._error="";
       this._notice=this._t("saved");
     } catch(error) {
@@ -208,7 +219,8 @@ class WetSoilCard extends HTMLElement {
     reload.onclick=()=>{this._editing=false;this._refresh();};
     heading.append(reload);root.append(heading);
     if (!c) {
-      root.append(elem("p",this._error||this._t("select")));
+      const missing = !this._config?.entry_id;
+      root.append(elem("p",this._error||this._t(missing?"selectRequired":"invalidSelection"),"error"));
       card.append(style,root);this.append(card);return;
     }
     const metrics=elem("div",null,"metrics");
@@ -344,6 +356,14 @@ class WetSoilCardEditor extends HTMLElement {
       this.replaceChildren();
       const label=elem("label","WetSoil circuit / Bewässerungskreis");
       const selector=elem("select");
+      selector.required=true;
+      const placeholder=elem("option",this._hass.language?.startsWith("de")
+        ?"Bitte Bewässerungskreis auswählen"
+        :"Select a circuit");
+      placeholder.value="";
+      placeholder.disabled=true;
+      placeholder.selected=!circuits.some(c=>c.entry_id===this._config.entry_id);
+      selector.append(placeholder);
       for(const circuit of circuits) {
         const option=elem("option",circuit.name);
         option.value=circuit.entry_id;
@@ -351,6 +371,7 @@ class WetSoilCardEditor extends HTMLElement {
         selector.append(option);
       }
       selector.onchange=()=>{
+        if (!selector.value || !circuits.some(c=>c.entry_id===selector.value)) return;
         this._config={...this._config,entry_id:selector.value};
         this.dispatchEvent(new CustomEvent("config-changed",{
           detail:{config:this._config},bubbles:true,composed:true

@@ -18,6 +18,7 @@ jobs:
         with:
           node-version: "24"
       - run: node --check custom_components/wetsoil/frontend/wetsoil-card.js
+      - run: node --test tests/frontend/*.test.cjs
   home-assistant-import:
     runs-on: ubuntu-latest
     steps:

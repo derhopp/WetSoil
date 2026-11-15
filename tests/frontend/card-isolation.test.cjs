@@ -1,0 +1,83 @@
+const {test} = require("node:test");
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const path = require("node:path");
+const vm = require("node:vm");
+
+function loadCard() {
+  const registry = new Map();
+  class HTMLElement {}
+  class CustomEvent {}
+  const context = {
+    HTMLElement, CustomEvent,
+    customElements: {define(name, type) {registry.set(name,type);}},
+    window: {},
+    document: {createElement(tag) {return {tag};}},
+    console
+  };
+  const source = fs.readFileSync(path.join(__dirname,
+    "../../custom_components/wetsoil/frontend/wetsoil-card.js"),"utf8");
+  vm.runInNewContext(source,context,{filename:"wetsoil-card.js"});
+  return registry.get("wetsoil-card");
+}
+const circuits=[
+  {entry_id:"test-1",name:"Test 1",config:{weather_entity:"weather.one",rain_sensor:"binary_sensor.one",start_time:"08:00"}},
+  {entry_id:"test-2",name:"Test 2",config:{weather_entity:"weather.two",rain_sensor:"binary_sensor.two",start_time:"09:00"}}
+];
+
+test("missing and stale entry IDs never fall back to first circuit",()=>{
+  const Card=loadCard(), card=new Card();
+  card._circuits=circuits;
+  for (const entry_id of [undefined,"","does-not-exist"]) {
+    card._config = {entry_id};
+    assert.equal(card._current(),undefined);
+  }
+  card._config={entry_id:"test-2"};
+  assert.equal(card._current().name,"Test 2");
+});
+
+test("two cards send changes to their own circuit",async()=>{
+  const Card=loadCard(), messages=[];
+  const hass={language:"en",callWS:async msg=>{messages.push(msg);return {};}};
+  const a=new Card(), b=new Card();
+  for(const [card,id] of [[a,"test-1"],[b,"test-2"]]) {
+    card._config={entry_id:id};
+    card._circuits=circuits;
+    card._hass=hass;
+    card._refresh=async()=>{};
+  }
+  await a._send("update",{config:{weather_entity:"weather.new",rain_sensor:"binary_sensor.new",start_time:"07:00"}});
+  await b._send("update",{config:{weather_entity:"weather.two",rain_sensor:"binary_sensor.two",start_time:"09:30"}});
+  assert.deepEqual(messages.map(x=>x.entry_id),["test-1","test-2"]);
+  assert.equal(messages[0].config.weather_entity,"weather.new");
+  assert.equal(messages[1].config.weather_entity,"weather.two");
+});
+
+test("unbound card cannot write or trigger hardware action",async()=>{
+  const Card=loadCard(), requests=[];
+  const card=new Card();
+  card._circuits=circuits;
+  card._hass={language:"de",callWS:async m=>requests.push(m)};
+  card._render=()=>{};
+  for(const entry_id of ["","obsolete"]) {
+    card._config={entry_id};
+    await card._send("update",{config:{weather_entity:"weather.x"}});
+    await card._send("action",{action:"start"});
+  }
+  assert.equal(requests.length,0);
+});
+
+test("additional WebSocket fields cannot change target entry",async()=>{
+  const Card=loadCard(), requests=[],card=new Card();
+  card._config={entry_id:"test-2"};
+  card._circuits=circuits;
+  card._hass={language:"en",callWS:async m=>requests.push(m)};
+  card._refresh=async()=>{};
+  await card._send("update",{entry_id:"test-1",config:{start_time:"11:00"}});
+  assert.equal(requests[0].entry_id,"test-2");
+});
+
+test("stub configuration does not silently bind to first circuit",()=>{
+  const Card=loadCard();
+  assert.equal(Card.getStubConfig().entry_id,"");
+});
