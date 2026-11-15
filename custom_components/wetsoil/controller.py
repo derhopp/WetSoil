@@ -80,7 +80,7 @@ class Circuit:
             if self.config[key]:
                 watched.add(self.config[key])
         self._unsub.append(async_track_time_interval(
-            self.hass, self._tick, timedelta(minutes=5)))
+            self.hass, self._tick, timedelta(seconds=30)))
         if watched:
             self._unsub.append(async_track_state_change_event(
                 self.hass, list(watched), self._state_event))
@@ -162,6 +162,10 @@ class Circuit:
         """Settings are persisted atomically without changing active valves."""
         new = validate_config(settings)
         previous = self.config
+        reset_history = (
+            new["precipitation_sensor"] != previous["precipitation_sensor"]
+            or new["precipitation_sensor_kind"] != previous["precipitation_sensor_kind"]
+        )
         if self.running and new["valves"] != previous["valves"]:
             raise ValueError("stop_before_changing_valves")
         if self.running and self.kind == "auto" and not new["automatic"]:
@@ -173,6 +177,12 @@ class Circuit:
             except Exception:
                 self.config = previous
                 raise
+        if reset_history:
+            self.weather.history.days.clear()
+            self.weather.history.current = None
+            self.weather.history.last_sample = None
+            await self.weather.history.save()
+            self.weather.last_fetch = None
         self._listen()
         await self.weather.update(self.config)
         self.changed()
@@ -180,11 +190,12 @@ class Circuit:
     async def _tick(self, now):
         if self._closed:
             return
-        if self.recovery_required:
-            await self._off()
-        await self.weather.update(self.config)
-        self.changed()
         local = dt_util.as_local(now)
+        if local.minute % 5 == 0 and local.second < 30:
+            if self.recovery_required:
+                await self._off()
+            await self.weather.update(self.config)
+            self.changed()
         settings = self.config
         if (settings["start_mode"] == "time"
             and local.strftime("%H:%M") == settings["start_time"]
@@ -323,7 +334,7 @@ class Circuit:
             self.ends = None
             if safe:
                 self.status = "idle" if reason == "complete" else "stopped"
-            if abort and was_running:
+            if abort and was_running and safe:
                 self.error = reason
             self.events.append("Watering stopped: " + reason)
             await self._save()

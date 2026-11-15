@@ -26,7 +26,7 @@ class WetSoilNumber(WetSoilEntity, NumberEntity):
         super().__init__(circuit, key, name)
         self._attr_native_min_value = minimum
         self._attr_native_max_value = maximum
-        self._attr_native_step = 0.5 if unit == "s" else 0.1
+        self._attr_native_step = 0.5 if unit == "s" else 0.01
         self._attr_native_unit_of_measurement = unit
 
     @property

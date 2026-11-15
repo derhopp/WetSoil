@@ -216,7 +216,10 @@ class WetSoilWeather:
             amount = (as_mm(state.state, state.attributes.get("unit_of_measurement"))
                       if state is not None else None)
             await self.history.sample(now, amount, settings["precipitation_sensor_kind"])
-        self.rain_3d = self.history.three_day_mean(now.date())
+        self.rain_3d = (
+            self.history.three_day_mean(now.date())
+            if sensor_id and amount is not None else None
+        )
         if not settings["weather_entity"]:
             self.temperature = self.rain_today = None
             self.quality = "weather_unconfigured"
