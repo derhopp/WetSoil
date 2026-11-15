@@ -38,7 +38,7 @@ def test_two_circuits_cannot_share_valve(modules):
     const, validation=modules
     cfg=const.defaults()
     cfg["valves"]=["switch.a"]
-    hass=FakeHass({"one":{"config":cfg},"two":{"config":const.defaults()}})
+    hass=FakeHass({"one":cfg,"two":const.defaults()})
     newer=const.defaults()
     newer["valves"]=["switch.a"]
     with pytest.raises(ValueError,match="shared_valve"):
@@ -50,7 +50,7 @@ def test_cycles_and_multiple_successors(modules):
     a,b,c=(const.defaults() for _ in range(3))
     b.update(start_mode="chained",predecessor="one")
     c.update(start_mode="chained",predecessor="one")
-    hass=FakeHass({"one":{"config":a},"two":{"config":b},"three":{"config":c}})
+    hass=FakeHass({"one":a,"two":b,"three":c})
     with pytest.raises(ValueError,match="invalid_predecessor"):
         validation.validate_all(hass,"three",c)
     c["predecessor"]="two"
@@ -64,7 +64,7 @@ def test_valid_linear_chain(modules):
     a,b,c=(const.defaults() for _ in range(3))
     b.update(start_mode="chained",predecessor="one")
     c.update(start_mode="chained",predecessor="two")
-    hass=FakeHass({"one":{"config":a},"two":{"config":b},"three":{"config":c}})
+    hass=FakeHass({"one":a,"two":b,"three":c})
     assert validation.validate_all(hass,"three",c)["predecessor"]=="two"
 
 
