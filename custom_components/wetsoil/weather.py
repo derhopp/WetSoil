@@ -9,7 +9,9 @@ from homeassistant.helpers.storage import Store
 from homeassistant.util import dt as dt_util
 
 _LOGGER = logging.getLogger(__name__)
-RAIN_STATES = {"rainy", "pouring", "lightning-rainy", "snowy-rainy"}
+RAIN_STATES = {"rainy", "pouring", "lightning-rainy", "snowy-rainy", "snowy", "hail"}
+DRY_STATES = {"clear-night", "sunny", "partlycloudy", "cloudy", "fog",
+              "windy", "windy-variant"}
 
 
 def as_number(raw):
@@ -193,7 +195,8 @@ class WetSoilWeather:
             state = self.hass.states.get(weather_id)
             sources.append(
                 None if state is None or state.state in ("unknown", "unavailable")
-                else state.state in RAIN_STATES
+                else (True if state.state in RAIN_STATES
+                      else False if state.state in DRY_STATES else None)
             )
         if sensor_id:
             state = self.hass.states.get(sensor_id)

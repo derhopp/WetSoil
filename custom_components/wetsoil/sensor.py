@@ -17,6 +17,7 @@ DESCRIPTIONS = {
     "history_factor": ("Historical precipitation factor", None),
     "last_start": ("Last start", None),
     "last_end": ("Last end", None),
+    "next_start": ("Next scheduled start", None),
     "config": ("Configuration", None),
     "events": ("Last action", None),
 }

@@ -14,6 +14,7 @@ from homeassistant.util import dt as dt_util
 from .algorithm import calculate
 from .const import DOMAIN, defaults, validate_config
 from .weather import WetSoilWeather
+from .schedule import local_occurrence, next_scheduled
 
 _LOGGER = logging.getLogger(__name__)
 EVENT = "wetsoil_updated"
@@ -132,6 +133,11 @@ class Circuit:
 
     def snapshot(self):
         calc = self.calculation()
+        local = dt_util.now()
+        next_time = next_scheduled(
+            local, self.config["start_time"],
+            self.config["weekdays"], self.config["months"]
+        ) if self.config["start_mode"] == "time" else None
         return {
             "entry_id": self.entry.entry_id,
             "name": self.entry.title,
@@ -145,6 +151,11 @@ class Circuit:
             "computed_seconds": calc.seconds,
             "planned_seconds": self.planned(),
             "remaining_seconds": max(0, (dt_util.parse_datetime(self.ends) - dt_util.utcnow()).total_seconds()) if self.ends else 0,
+            "next_start": (
+                next_time.isoformat() if next_time is not None
+                else ("after:" + self.config["predecessor"]
+                      if self.config["start_mode"] == "chained" else None)
+            ),
             "started_at": self.started,
             "last_end": self.ended,
             "rain_today": self.weather.rain_today,
@@ -200,6 +211,13 @@ class Circuit:
             self.changed()
         settings = self.config
         if (settings["start_mode"] == "time"
+            and local_occurrence(local.date(), settings["start_time"], local.tzinfo) is None
+            and self.last_attempt != local.date().isoformat()):
+            self.last_attempt = local.date().isoformat()
+            self.events.append("Nonexistent local start time: safely skipped")
+            await self._save()
+            self.changed()
+        if (settings["start_mode"] == "time"
             and local.strftime("%H:%M") == settings["start_time"]
             and self.last_attempt != local.date().isoformat()):
             self.last_attempt = local.date().isoformat()
@@ -210,6 +228,14 @@ class Circuit:
         """A skipped circuit forwards to its single successor."""
         if self._closed:
             return
+        if self.config["start_mode"] == "chained":
+            today = dt_util.now().date().isoformat()
+            if self.last_attempt == today:
+                self.events.append("Duplicate chain trigger blocked")
+                self.changed()
+                return
+            self.last_attempt = today
+            await self._save()
         if self.running:
             self.events.append("Automatic attempt skipped: already running")
             self.changed()
@@ -233,8 +259,6 @@ class Circuit:
         for circuit in self.hass.data.get(DOMAIN, {}).values():
             if (circuit.config["start_mode"] == "chained"
                 and circuit.config["predecessor"] == self.entry.entry_id):
-                circuit.last_attempt = dt_util.now().date().isoformat()
-                await circuit._save()
                 await circuit.auto_attempt()
                 break
 
@@ -265,8 +289,11 @@ class Circuit:
             self.status = "starting"
             try:
                 for valve in self.config["valves"]:
-                    await self.hass.services.async_call(
-                        "switch", "turn_on", {"entity_id": valve}, blocking=True)
+                    await asyncio.wait_for(
+                        self.hass.services.async_call(
+                            "switch", "turn_on", {"entity_id": valve}, blocking=True),
+                        timeout=10,
+                    )
                 for valve in self.config["valves"]:
                     state = self.hass.states.get(valve)
                     if state is None or state.state != "on":
@@ -303,8 +330,11 @@ class Circuit:
             confirmed = False
             for _ in range(2):
                 try:
-                    await self.hass.services.async_call(
-                        "switch", "turn_off", {"entity_id": valve}, blocking=True)
+                    await asyncio.wait_for(
+                        self.hass.services.async_call(
+                            "switch", "turn_off", {"entity_id": valve}, blocking=True),
+                        timeout=10,
+                    )
                     state = self.hass.states.get(valve)
                     if state is not None and state.state == "off":
                         confirmed = True

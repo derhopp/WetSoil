@@ -23,7 +23,7 @@ const LANG = {
     weekdayNames:["Mon","Tue","Wed","Thu","Fri","Sat","Sun"],
     monthNames:["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"],
     history:"Actual precipitation",unavailable:"Unavailable",refresh:"Refresh",
-    factor:"Calculation factors",sensorTotal:"Cumulative total",sensorDaily:"Daily total"
+    factor:"Calculation factors",next:"Next start",sensorTotal:"Cumulative total",sensorDaily:"Daily total"
   },
   de: {
     title:"WetSoil",select:"Bewässerungskreis",status:"Status",auto:"Automatik aktiviert",
@@ -48,7 +48,7 @@ const LANG = {
     weekdayNames:["Mo","Di","Mi","Do","Fr","Sa","So"],
     monthNames:["Jan","Feb","Mär","Apr","Mai","Jun","Jul","Aug","Sep","Okt","Nov","Dez"],
     history:"Tatsächlicher Niederschlag",unavailable:"Nicht verfügbar",refresh:"Aktualisieren",
-    factor:"Berechnungsfaktoren",sensorTotal:"Kumulativer Zähler",sensorDaily:"Tagessumme"
+    factor:"Berechnungsfaktoren",next:"Nächster Start",sensorTotal:"Kumulativer Zähler",sensorDaily:"Tagessumme"
   }
 };
 
@@ -217,7 +217,8 @@ class WetSoilCard extends HTMLElement {
       ["planned",c.planned_seconds," s"],["remaining",Math.round(c.remaining_seconds||0)," s"],
       ["temp",c.temperature," °C"],["forecast",c.rain_today," mm"],
       ["measured",c.rain_3d," mm/day"],["raining",c.raining,""],
-      ["quality",c.quality,""],["reason",c.reason,""]]) {
+      ["quality",c.quality,""],["reason",c.reason,""],
+      ["next",c.next_start,""]]) {
         this._metric(metrics,key,value,unit);
       }
     root.append(metrics);
