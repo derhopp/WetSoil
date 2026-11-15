@@ -1,0 +1,13 @@
+{
+  "domain": "wetsoil",
+  "name": "WetSoil",
+  "version": "0.1.0",
+  "documentation": "https://github.com/derhopp/WetSoil",
+  "issue_tracker": "https://github.com/derhopp/WetSoil/issues",
+  "codeowners": ["@derhopp"],
+  "config_flow": true,
+  "integration_type": "hub",
+  "iot_class": "local_push",
+  "dependencies": ["http", "websocket_api"],
+  "requirements": []
+}
