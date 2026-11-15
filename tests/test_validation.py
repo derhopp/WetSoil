@@ -2,7 +2,7 @@
 import importlib.util
 from pathlib import Path
 import sys
-from types import ModuleType
+from types import ModuleType, SimpleNamespace
 
 import pytest
 
@@ -27,7 +27,7 @@ def modules(monkeypatch):
 
 class FakeHass:
     def __init__(self, values):
-        self.data={"wetsoil":values}
+        self.data={"wetsoil":{key: SimpleNamespace(config=config) for key, config in values.items()}}
         self.states=self
 
     def get(self, entity):
@@ -66,3 +66,25 @@ def test_valid_linear_chain(modules):
     c.update(start_mode="chained",predecessor="two")
     hass=FakeHass({"one":{"config":a},"two":{"config":b},"three":{"config":c}})
     assert validation.validate_all(hass,"three",c)["predecessor"]=="two"
+
+
+def test_real_runtime_circuit_objects(modules):
+    """Regression: hass.data stores Circuit objects, not dicts."""
+    const, validation = modules
+    config = const.defaults()
+    config["weather_entity"] = "weather.a"
+    config["valves"] = ["switch.a"]
+    hass = FakeHass({"first": config, "second": const.defaults()})
+    updated = {**config, "base_seconds": 45.0}
+    result = validation.validate_all(hass, "first", updated)
+    assert result["base_seconds"] == 45.0
+    assert hass.data["wetsoil"]["first"].config["base_seconds"] == 30.0
+
+
+def test_invalid_entity_still_rejected_with_circuit_objects(modules):
+    const, validation = modules
+    cfg = const.defaults()
+    cfg["weather_entity"] = "weather.nonexistent"
+    hass = FakeHass({"first": const.defaults()})
+    with pytest.raises(ValueError, match="invalid_entity:weather_entity"):
+        validation.validate_all(hass, "first", cfg)

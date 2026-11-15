@@ -44,7 +44,9 @@ async def async_setup_entry(hass, entry):
     area = entry.data.get("area_id")
     if area:
         registry = dr.async_get(hass)
-        device = registry.async_get_device(identifiers={(DOMAIN, entry.entry_id)})
+        device = registry.async_get_device_by_identifier(
+            (DOMAIN, entry.entry_id), entry.entry_id
+        )
         if device and not device.area_id:
             registry.async_update_device(device.id, area_id=area)
     return True

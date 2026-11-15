@@ -8,7 +8,7 @@ def validate_all(hass, updated_id, updated):
     """No shared valves, missing references or non-linear cycles."""
     settings = validate_config(updated)
     circuits = {
-        entry_id: value["config"] for entry_id, value
+        entry_id: circuit.config for entry_id, circuit
         in hass.data[DOMAIN].items()
     }
     circuits[updated_id] = settings
