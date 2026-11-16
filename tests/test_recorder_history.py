@@ -99,3 +99,62 @@ async def test_missing_recorder_does_not_return_zero():
         hass,"sensor.rain",datetime(2026,11,16).date(),BERLIN,"total",mm)
     assert days=={}
     assert quality=="recorder_not_loaded"
+
+
+def test_intensity_rate_units():
+    assert RECORDER.intensity_mm_per_hour("1", "mm/h") == 1
+    assert RECORDER.intensity_mm_per_hour("24", "mm/d") == 1
+    assert RECORDER.intensity_mm_per_hour("1", "in/h") == pytest.approx(25.4)
+    assert RECORDER.intensity_mm_per_hour("2", "in/d") == pytest.approx(2*25.4/24)
+    for raw, unit in [("unknown","mm/h"),(-1,"mm/h"),(float("nan"),"mm/h"),
+                      (3,"mm"),(3,"unknown")]:
+        assert RECORDER.intensity_mm_per_hour(raw,unit) is None
+
+
+def intensity_state(at, rate, unit="mm/h"):
+    return SimpleNamespace(
+        last_updated=at, state=str(rate),
+        attributes={"unit_of_measurement":unit},
+    )
+
+
+def test_intensity_exact_72h_time_weighted():
+    end=datetime(2026,11,16,12,tzinfo=timezone.utc)
+    start=end-timedelta(hours=72)
+    states=[intensity_state(start,0),
+            intensity_state(start+timedelta(hours=12),2),
+            intensity_state(start+timedelta(hours=36),0)]
+    # 24 hours at 2 mm/h = 48mm total = 16mm per 24-hour equivalent.
+    assert RECORDER.integrate_intensity(states,start,end)==pytest.approx(48)
+    assert RECORDER.integrate_intensity([states[0]],start,end)==0
+
+
+def test_intensity_rolling_72h_not_calendar_days_or_dst():
+    # UTC elapsed-time window is always exactly 72 hours, even through DST.
+    for end in (datetime(2026,3,30,12,tzinfo=timezone.utc),
+                datetime(2026,10,26,12,tzinfo=timezone.utc)):
+        start=end-timedelta(hours=72)
+        assert RECORDER.integrate_intensity(
+            [intensity_state(start,0.5)],start,end)==pytest.approx(36)
+
+
+def test_intensity_unavailable_if_missing_start_or_unknown_interval():
+    end=datetime(2026,11,16,12,tzinfo=timezone.utc)
+    start=end-timedelta(hours=72)
+    assert RECORDER.integrate_intensity(
+        [intensity_state(start+timedelta(hours=1),2)],start,end) is None
+    assert RECORDER.integrate_intensity(
+        [intensity_state(start,1),intensity_state(start+timedelta(hours=2),"unavailable")],
+        start,end) is None
+    assert RECORDER.integrate_intensity(
+        [intensity_state(start,1),intensity_state(start+timedelta(hours=2),1,"mm")],
+        start,end) is None
+
+
+def test_intensity_ignores_data_after_window():
+    end=datetime(2026,11,16,12,tzinfo=timezone.utc)
+    start=end-timedelta(hours=72)
+    result=RECORDER.integrate_intensity(
+        [intensity_state(start,1),intensity_state(end+timedelta(hours=1),100)],
+        start,end)
+    assert result==pytest.approx(72)
