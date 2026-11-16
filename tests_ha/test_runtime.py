@@ -25,9 +25,13 @@ async def test_two_circuits_load_entities_and_unload_without_switching(hass: Hom
     )
     first.add_to_hass(hass)
     second.add_to_hass(hass)
-    assert await hass.config_entries.async_setup(first.entry_id)
-    assert await hass.config_entries.async_setup(second.entry_id)
+    # Home Assistant may eagerly set up the second entry while setting up
+    # the domain for the first. Do not redundantly setup an already loaded one.
+    await hass.config_entries.async_setup(first.entry_id)
     await hass.async_block_till_done()
+    if second.state is ConfigEntryState.NOT_LOADED:
+        await hass.config_entries.async_setup(second.entry_id)
+        await hass.async_block_till_done()
 
     assert first.state is ConfigEntryState.LOADED
     assert second.state is ConfigEntryState.LOADED
