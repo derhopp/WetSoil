@@ -7,7 +7,6 @@ import logging
 import math
 
 from homeassistant.helpers.storage import Store
-from .recorder_history import read_recorder
 from homeassistant.util import dt as dt_util
 
 _LOGGER = logging.getLogger(__name__)
