@@ -7,6 +7,7 @@ import logging
 import math
 
 from homeassistant.helpers.storage import Store
+from .recorder_history import read_recorder
 from homeassistant.util import dt as dt_util
 
 _LOGGER = logging.getLogger(__name__)
@@ -130,17 +131,21 @@ class RainfallHistory:
         self.days = {}
         self.current = None
         self.last_sample = None
+        self.provenance = {}
+        self.recorder_status = "not_checked"
+        self.last_backfill = None
 
     async def restore(self):
         data = await self.store.async_load() or {}
         self.days = data.get("days", {})
         self.current = data.get("current")
         self.last_sample = data.get("last_sample")
+        self.provenance = data.get("provenance", {})
 
     async def save(self):
         await self.store.async_save({
             "days": self.days, "current": self.current,
-            "last_sample": self.last_sample,
+            "last_sample": self.last_sample, "provenance": self.provenance,
         })
 
     async def sample(self, when, value, kind):
@@ -164,9 +169,13 @@ class RainfallHistory:
                 timely = False
             if previous["valid"] and previous["samples"] >= 274 and timely:
                 self.days[previous["day"]] = round(previous["amount"], 5)
+                self.provenance[previous["day"]] = "observed"
             else:
                 self.days.pop(previous["day"], None)
+                self.provenance.pop(previous["day"], None)
             self.days = dict(sorted(self.days.items())[-10:])
+            self.provenance = {k: v for k, v in self.provenance.items()
+                               if k in self.days}
             self.current = None
             self.last_sample = None
         if self.current is None:
@@ -204,6 +213,24 @@ class RainfallHistory:
             current["last"] = stamp
         await self.save()
 
+    async def backfill(self, entity_id, kind, today, tz):
+        """Merge only validated Recorder history; never overwrite local days."""
+        from .recorder_history import read_recorder
+        days, status = await read_recorder(
+            self.hass, entity_id, today, tz, kind, as_mm
+        )
+        self.recorder_status = status
+        added = False
+        for day, amount in days.items():
+            if day not in self.days:
+                self.days[day] = amount
+                self.provenance[day] = "recorder"
+                added = True
+        if added:
+            self.days = dict(sorted(self.days.items())[-10:])
+            await self.save()
+
+
     def three_day_mean(self, today):
         """Return None unless the three preceding local days are complete."""
         values = [
@@ -236,6 +263,7 @@ class WetSoilWeather:
         self.forecast_error = None
         self._fetch_lock = asyncio.Lock()
         self.history = RainfallHistory(hass, entry_id)
+        self.history_error = "not_checked"
 
     async def setup(self):
         await self.history.restore()
@@ -297,9 +325,23 @@ class WetSoilWeather:
                           if state is not None else None)
                 await self.history.sample(dt_util.as_local(now), amount,
                                           settings["precipitation_sensor_kind"])
+            if sensor_id and (
+                self.history.three_day_mean(today) is None
+                and (self.history.last_backfill is None
+                     or (now - self.history.last_backfill).total_seconds() >= 21600)
+            ):
+                self.history.last_backfill = now
+                tz = dt_util.as_local(now).tzinfo
+                await self.history.backfill(
+                    sensor_id, settings["precipitation_sensor_kind"], today, tz
+                )
             self.rain_3d = (
                 self.history.three_day_mean(today)
                 if sensor_id and amount is not None else None
+            )
+            self.history_error = (
+                "complete" if self.rain_3d is not None
+                else self.history.recorder_status
             )
             entity_id = settings["weather_entity"]
             changed = entity_id != self.forecast_entity or today != self.forecast_date

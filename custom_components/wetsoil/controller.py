@@ -161,6 +161,15 @@ class Circuit:
             "sensor_raining": self.weather.sensor_raining,
             "rain_source_disagreement": self.weather.rain_source_disagreement,
             "quality": self.weather.quality,
+            "forecast_source": self.weather.forecast_source,
+            "forecast_entity": self.weather.forecast_entity,
+            "forecast_updated": self.weather.forecast_updated,
+            "forecast_error": self.weather.forecast_error,
+            "history_source": {
+                day: self.weather.history.provenance.get(day, "observed")
+                for day in self.weather.history.days
+            },
+            "history_status": self.weather.history_error,
             "factors": {"temp": calc.temp_factor,
                         "today": calc.rain_today_factor,
                         "history": calc.rain_3d_factor},
@@ -190,6 +199,9 @@ class Circuit:
                 raise
         if reset_history:
             self.weather.history.days.clear()
+            self.weather.history.provenance.clear()
+            self.weather.history.last_backfill = None
+            self.weather.history.recorder_status = "not_checked"
             self.weather.history.current = None
             self.weather.history.last_sample = None
             await self.weather.history.save()
