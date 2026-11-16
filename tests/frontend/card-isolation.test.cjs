@@ -81,3 +81,36 @@ test("stub configuration does not silently bind to first circuit",()=>{
   const Card=loadCard();
   assert.equal(Card.getStubConfig().entry_id,"");
 });
+
+
+test("structured cyclic chain errors are translated instead of [object Object]",()=>{
+  const Card=loadCard(),card=new Card();
+  card._hass={locale:{language:"de"}};
+  assert.equal(card._errorText({code:"invalid_config",message:"cyclic_predecessor"}),
+    "Eine Ringverkettung ist nicht erlaubt.");
+  assert.notEqual(card._errorText({code:"invalid_config"}),"[object Object]");
+});
+
+test("next start displays a localized time in HA timezone",()=>{
+  const Card=loadCard(),card=new Card();
+  card._hass={locale:{language:"de-DE"},config:{time_zone:"Europe/Berlin"}};
+  const value=card._formatNextStart("2026-11-16T07:00:00+00:00");
+  assert.match(value,/16.11.2026/);
+  assert.match(value,/08:00/);
+  card._circuits=[{entry_id:"first",name:"Test 1"}];
+  assert.equal(card._formatNextStart("after:first"),"Nach Test 1");
+  assert.equal(card._formatNextStart(null),"Nicht verfügbar");
+});
+
+test("error details from rejected websocket updates remain readable",async()=>{
+  const Card=loadCard(),card=new Card();
+  card._hass={language:"de",callWS:async()=>{
+    throw {code:"invalid_config",message:"cyclic_predecessor"};
+  }};
+  card._circuits=[{entry_id:"first",name:"Test 1"}];
+  card._config={entry_id:"first"};
+  card._refresh=async()=>{};
+  await card._send("update",{config:{predecessor:"first"}});
+  assert.equal(card._error,"Eine Ringverkettung ist nicht erlaubt.");
+  assert.equal(card._editing,true);
+});

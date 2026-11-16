@@ -25,7 +25,16 @@ const LANG = {
     history:"Actual precipitation",unavailable:"Unavailable",refresh:"Refresh",
     factor:"Calculation factors",next:"Next start",sensorTotal:"Cumulative total",sensorDaily:"Daily total",
     selectRequired:"Select a WetSoil circuit in the card editor before using this card.",
-    invalidSelection:"The selected WetSoil circuit no longer exists. Choose a valid circuit in the card editor."
+    invalidSelection:"The selected WetSoil circuit no longer exists. Choose a valid circuit in the card editor.",
+    after:"After", rainConflict:"Rain sensor and weather report contradictory conditions.",
+    errors:{
+      cyclic_predecessor:"Circular circuit chaining is not allowed.",
+      invalid_predecessor:"Invalid predecessor or more than one successor in the chain.",
+      missing_predecessor:"Choose a predecessor before saving.",
+      shared_valve:"This valve belongs to another circuit.",
+      invalid_temperature_range:"The upper temperature limit must exceed the lower limit.",
+      invalid_config:"Invalid configuration."
+    }
   },
   de: {
     title:"WetSoil",select:"Bewässerungskreis",status:"Status",auto:"Automatik aktiviert",
@@ -52,7 +61,16 @@ const LANG = {
     history:"Tatsächlicher Niederschlag",unavailable:"Nicht verfügbar",refresh:"Aktualisieren",
     factor:"Berechnungsfaktoren",next:"Nächster Start",sensorTotal:"Kumulativer Zähler",sensorDaily:"Tagessumme",
     selectRequired:"Bitte zuerst im Card-Editor einen WetSoil-Bewässerungskreis auswählen.",
-    invalidSelection:"Der ausgewählte Bewässerungskreis existiert nicht mehr. Bitte im Card-Editor neu auswählen."
+    invalidSelection:"Der ausgewählte Bewässerungskreis existiert nicht mehr. Bitte im Card-Editor neu auswählen.",
+    after:"Nach", rainConflict:"Regen-Sensor und Wetter-Entity melden widersprüchliche Zustände.",
+    errors:{
+      cyclic_predecessor:"Eine Ringverkettung ist nicht erlaubt.",
+      invalid_predecessor:"Ungültiger Vorgänger oder mehrere Nachfolger in der Kette.",
+      missing_predecessor:"Bitte eine Vorgängerinstanz auswählen.",
+      shared_valve:"Das Ventil wird bereits von einem anderen Bewässerungskreis verwendet.",
+      invalid_temperature_range:"Die obere Temperaturgrenze muss höher als die untere sein.",
+      invalid_config:"Ungültige Konfiguration."
+    }
   }
 };
 
@@ -99,8 +117,40 @@ class WetSoilCard extends HTMLElement {
   static getConfigElement() { return document.createElement("wetsoil-card-editor"); }
   static getStubConfig() { return {entry_id:""}; }
   _t(key) {
-    const lang=this._hass?.language?.startsWith("de")?"de":"en";
+    const lang=this._hass?.locale?.language?.startsWith("de") ||
+      this._hass?.language?.startsWith("de") ? "de" : "en";
     return LANG[lang][key] || key;
+  }
+  _errorText(error) {
+    const raw = typeof error === "string" ? error :
+      error?.message || error?.code || error?.error?.message || error?.error?.code || "";
+    const reason = String(raw || "unknown_error");
+    const key = reason.split(":")[0];
+    const lang = this._hass?.locale?.language?.startsWith("de") ||
+      this._hass?.language?.startsWith("de") ? "de" : "en";
+    return LANG[lang].errors[key] || (reason === "[object Object]" ?
+      LANG[lang].errors.invalid_config : reason.replaceAll("_"," "));
+  }
+  _formatNextStart(value) {
+    if (typeof value !== "string" || !value) return this._t("unavailable");
+    if (value.startsWith("after:")) {
+      const id = value.substring(6);
+      const name = this._circuits?.find(c=>c.entry_id===id)?.name;
+      return name ? this._t("after")+" "+name : this._t("unavailable");
+    }
+    const date = new Date(value);
+    if (!Number.isFinite(date.getTime())) return this._t("unavailable");
+    const lang = this._hass?.locale?.language || this._hass?.language || "en";
+    const timezone = this._hass?.config?.time_zone;
+    try {
+      return new Intl.DateTimeFormat(lang, {
+        day:"2-digit", month:"2-digit", year:"numeric",
+        hour:"2-digit",minute:"2-digit",hourCycle:"h23",
+        ...(timezone?{timeZone:timezone}:{})
+      }).format(date);
+    } catch (_) {
+      return date.toLocaleString(lang);
+    }
   }
   async _refresh() {
     if (!this._hass || this._loading) return;
@@ -109,7 +159,7 @@ class WetSoilCard extends HTMLElement {
       this._circuits=await this._hass.callWS({type:"wetsoil/list"});
       this._loaded=true;
       this._at=Date.now();
-    } catch(error) { this._error=String(error); }
+    } catch(error) { this._error=this._errorText(error); }
     this._loading=false;
     this._render();
   }
@@ -133,9 +183,9 @@ class WetSoilCard extends HTMLElement {
       this._notice=this._t("saved");
     } catch(error) {
       this._notice="";
-      this._error=String(error);
+      this._error=this._errorText(error);
     }
-    this._editing=false;
+    this._editing=Boolean(this._error && type==="update");
     await this._refresh();
   }
   _metric(host,key,value,unit="") {
@@ -229,8 +279,9 @@ class WetSoilCard extends HTMLElement {
       ["planned",c.planned_seconds," s"],["remaining",Math.round(c.remaining_seconds||0)," s"],
       ["temp",c.temperature," °C"],["forecast",c.rain_today," mm"],
       ["measured",c.rain_3d," mm/day"],["raining",c.raining,""],
-      ["quality",c.quality,""],["reason",c.reason,""],
-      ["next",c.next_start,""]]) {
+      ["quality",c.quality,""],["reason",c.rain_source_disagreement
+        ? this._t("rainConflict") : c.reason,""],
+      ["next",this._formatNextStart(c.next_start),""]]) {
         this._metric(metrics,key,value,unit);
       }
     root.append(metrics);
@@ -248,7 +299,6 @@ class WetSoilCard extends HTMLElement {
     const stop=elem("button",this._t("stop"),"danger");
     stop.onclick=()=>this._send("action",{action:"stop"});
     actions.append(start,stop);root.append(actions);
-    if(this._error)root.append(elem("p",this._error,"error"));
     if(this._notice)root.append(elem("p",this._notice));
     root.append(elem("h4",this._t("events")));
     const history=elem("ul");
@@ -339,6 +389,7 @@ class WetSoilCard extends HTMLElement {
       this._send("update",{config});
     };
     details.append(save);
+    if (this._error) details.append(elem("p",this._error,"error"));
     root.append(details);
     card.append(style,root);
     this.append(card);
