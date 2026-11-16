@@ -60,6 +60,7 @@ class Circuit:
 
     async def _save(self):
         await self.store.async_save({
+            "schema_version": 2,
             "config": self.config,
             "running": self.running,
             "last_slot": self.last_slot,
@@ -74,7 +75,15 @@ class Circuit:
     async def setup(self):
         saved = await self.store.async_load() or {}
         try:
-            self.config = validate_config(saved.get("config", defaults()))
+            if saved.get("schema_version", 1) > 2:
+                raise ValueError("unsupported_future_storage_schema")
+            stored = saved.get("config", defaults())
+            if not isinstance(stored, dict):
+                raise ValueError("stored_configuration_not_a_mapping")
+            # Version 1 may lack parameters introduced in later releases.
+            # Keep values the user supplied, fill only absent newer keys.
+            # Unknown keys remain invalid instead of being silently dropped.
+            self.config = validate_config({**defaults(), **stored})
         except ValueError:
             _LOGGER.exception("WetSoil invalid stored config")
             self.config = defaults()

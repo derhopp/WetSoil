@@ -17,7 +17,7 @@ from .controller import Circuit
 from .validation import validate_all
 
 _LOGGER = logging.getLogger(__name__)
-PLATFORMS = ("sensor", "binary_sensor", "switch", "button", "number")
+PLATFORMS = ("sensor", "binary_sensor", "switch", "button", "number", "time", "select")
 
 
 async def async_setup(hass, config):
