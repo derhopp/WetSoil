@@ -97,6 +97,22 @@ class Circuit:
         self.last_run_kind = saved.get("last_run_kind")
         self.last_skip_at = saved.get("last_skip_at")
         self.last_skip_reason = saved.get("last_skip_reason")
+        # A deleted config entry must never leave a dangling automatic chain.
+        # Config entries are registered before individual circuit setup.
+        manager = getattr(self.hass, "config_entries", None)
+        if manager is not None and hasattr(manager, "async_entries"):
+            known = {
+                record.entry_id for record in manager.async_entries(DOMAIN)
+            }
+            if (self.config["start_mode"] == "chained"
+                    and self.config["predecessor"] not in known):
+                self.config = {
+                    **self.config, "automatic": False,
+                    "start_mode": "time", "predecessor": None,
+                }
+                self.events.append(
+                    "Predecessor missing: automatic irrigation disabled"
+                )
         await self.weather.setup()
         # Do not touch actuators after restart, including an interrupted run.
         # The owner must provide independent fail-safe hardware/automation.

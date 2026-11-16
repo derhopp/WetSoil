@@ -105,6 +105,37 @@ async def async_unload_entry(hass, entry):
     return unloaded
 
 
+async def async_remove_entry(hass, entry):
+    """Detach surviving chained circuits when a predecessor is deleted.
+
+    This is deliberately NOT run on reload/unload, only on actual removal.
+    No valve is operated by this function.
+    """
+    async with hass.data[DOMAIN + "_config_lock"]:
+        for circuit in list(hass.data[DOMAIN].values()):
+            config = circuit.config
+            if (config["start_mode"] != "chained"
+                    or config["predecessor"] != entry.entry_id):
+                continue
+            # A running chain has no valid predecessor after removal anyway.
+            # Never mutate its active configuration or control its actuators.
+            if circuit.running or circuit._owned_valves:
+                _LOGGER.warning(
+                    "WetSoil circuit %s has a removed predecessor while running; "
+                    "manual configuration repair required", circuit.entry.entry_id
+                )
+                continue
+            updated = {
+                **config, "automatic": False, "start_mode": "time",
+                "predecessor": None,
+            }
+            await circuit.update_config(updated)
+            circuit.events.append(
+                "Predecessor deleted: automatic irrigation disabled"
+            )
+            circuit.changed()
+
+
 @websocket_api.websocket_command({vol.Required("type"): "wetsoil/list"})
 @callback
 def ws_list(hass, connection, msg):

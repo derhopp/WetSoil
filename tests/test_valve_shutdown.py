@@ -619,3 +619,27 @@ async def test_failed_turn_on_retains_explicit_stop_but_not_running(circuit_clas
     assert circuit._owned_valves=={"switch.test_valve"}
     await circuit.stop()
     assert [x[1] for x in hass.calls]==["turn_on","turn_off"]
+
+
+@pytest.mark.asyncio
+async def test_dangling_predecessor_disables_automation_at_setup(circuit_class):
+    hass=MockHass("off")
+    hass.async_create_task=lambda task:task.close()
+    hass.config_entries=SimpleNamespace(async_entries=lambda domain:[
+        SimpleNamespace(entry_id="survivor")
+    ])
+    circuit=make_circuit(circuit_class,hass)
+    defaults=sys.modules["wetsoil_off_test.const"].defaults
+    saved=defaults()
+    saved.update({"start_mode":"chained","predecessor":"removed-entry",
+                  "automatic":True})
+    circuit.store=SimpleNamespace(
+        async_load=lambda:asyncio.sleep(0,result={"config":saved})
+    )
+    circuit.weather=SimpleNamespace(setup=lambda:asyncio.sleep(0))
+    circuit._listen=lambda:None
+    await circuit.setup()
+    assert circuit.config["start_mode"]=="time"
+    assert circuit.config["predecessor"] is None
+    assert circuit.config["automatic"] is False
+    assert hass.calls==[]
