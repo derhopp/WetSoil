@@ -51,6 +51,10 @@ def validate_config(data: dict) -> dict:
         c[k] = float(c[k])
         if not math.isfinite(c[k]):
             raise ValueError(f"invalid_{k}")
+        if k in ("max_rain_today", "max_rain_3d"):
+            c[k] = round(c[k], 2)
+        elif k in ("min_temp", "max_temp"):
+            c[k] = round(c[k], 1)
     for k in ("base_seconds", "max_rain_today", "max_rain_3d", "max_runtime"):
         if c[k] <= 0:
             raise ValueError(f"invalid_{k}")

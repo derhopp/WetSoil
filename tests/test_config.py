@@ -42,3 +42,16 @@ def test_intensity_config_mode_is_valid():
     c["precipitation_sensor"] = "sensor.actual_precipitation_intensity"
     result = module.validate_config(c)
     assert result["precipitation_sensor_kind"] == "intensity"
+
+
+def test_numeric_limits_use_same_precision_as_weather_measurements():
+    sample = module.defaults()
+    sample["max_rain_today"] = 1.999
+    sample["max_rain_3d"] = 4.666
+    sample["min_temp"] = 20.04
+    sample["max_temp"] = 34.96
+    normalized = module.validate_config(sample)
+    assert normalized["max_rain_today"] == 2.00
+    assert normalized["max_rain_3d"] == 4.67
+    assert normalized["min_temp"] == 20.0
+    assert normalized["max_temp"] == 35.0
