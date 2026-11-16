@@ -57,3 +57,13 @@ WetSoil führt **keine eigenständige Sicherheitsabschaltung** aus. Der Anwender
 Unter **Art der Niederschlagsmessung** ist nun **Niederschlagsintensität (mm/h)** als dritte Alternative neben `daily` und `total` auswählbar. Unterstützte Einheiten sind `mm/h`, `mm/d`, `in/h`, `in/d`, `cm/h` und `cm/d`. WetSoil integriert die aus dem Recorder abgefragten Intensitätswerte über **exakt die letzten 72 vergangenen Stunden** (mm/h × Stunden). Die so berechnete Niederschlagsmenge in mm wird durch drei geteilt und als mittlerer Tagesniederschlag (mm/Tag) in der bisherigen Node-RED-Formel verwendet.
 
 Es werden keine lokalen Kalendertage vorausgesetzt; Zeitumstellungen ändern das 72-Stunden-Fenster nicht. Unveränderte Werte gelten bis zum nächsten im Recorder registrierten Zustandswechsel. Fehlt der Startzustand oder tritt ein ungültiger bzw. unbekannter Zustand auf, bleibt die gesamte Berechnung nicht verfügbar statt den fehlenden Regen als 0 zu behandeln. `intensity_72h_complete` zeigt eine verwertbare Recorder-Historie an. Die Modi `daily` und `total` bleiben unverändert.
+
+## Tatsächlicher Lauf, übersprungener Startversuch und Reset
+
+Ein geplanter Start, bei dem **keine Ventile tatsächlich eingeschaltet wurden**, zählt nur als *übersprungener Versuch*. Deaktivierte Automatik, unvollständige Wetter-/Niederschlagsdaten, Regen oder andere fehlende Freigaben markieren den Kreis nicht als bewässert. Wird die Startuhrzeit nach hinten auf einen späteren, noch zukünftigen Termin verschoben, darf WetSoil am selben Tag erneut versuchen zu starten.
+
+Derselbe lokale Termin (Datum + HH:MM) wird höchstens einmal geprüft; eine **wirklich gestartete automatische Bewässerung** zählt als Tageslauf und sperrt einen weiteren automatischen Lauf bis zum ausdrücklichen Reset. Das gilt auch bei Verkettungen. Manuelle Bewässerungen werden als tatsächliche Starts angezeigt, verbrauchen aber die Tagesfreigabe der Automatik nicht.
+
+Die Card zeigt „Heute tatsächlich gestartet“, „Automatik heute gestartet“, „Letzter tatsächlicher Start“ und den letzten Skipgrund. **Heutigen Laufstatus zurücksetzen** löscht nur die Tagesmarkierungen der ausgewählten Instanz. Es wird kein Ventil geschaltet und keine Bewässerung sofort ausgelöst. Während eines aktiven oder unvollständig gestarteten WetSoil-Laufs ist die Rücksetzung gesperrt. Der letzte tatsächliche Start bleibt als Historie sichtbar. Frühere `last_attempt`-Daten werden bei Updates nicht als Nachweis für einen tatsächlichen Lauf gewertet.
+
+Das Einschalten der Automatik ist künftig auch bei noch unvollständigen Wetter- und Historienwerten möglich; der geplante Zeitpunkt wird dann ohne tatsächlichen Start mit Grund protokolliert. Die eigenständige Aktorsicherung bleibt außerhalb von WetSoil.

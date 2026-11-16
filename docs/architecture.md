@@ -43,3 +43,8 @@ Weather caching is scoped to the selected entity and local date, with the cache 
 ## Rolling measured rate (intensity mode)
 
 The third precipitation sensor type is `intensity`. Recorder state changes are integrated as piecewise-constant rates over `[now - 72 h, now]` in UTC elapsed time, regardless of local midnight or DST. The resulting rainfall in mm is divided by 3 to feed the existing average-rainfall factor in mm/day. Recorder's state at the window start is necessary. Explicit unknown/unavailable intervals invalidate the integral. Current sensor value and unit are validated before using the Recorder history. Existing daily/total modes retain their original calendar-day semantics. Neither forecast data nor missing history is counted as actual zero precipitation.
+
+
+## Run accounting and persistence
+
+WetSoil stores `last_slot` (local date + absolute start HH:MM) to prevent repeated attempts during a single scheduled minute, `last_started_date` for any confirmed WetSoil actuator start, `last_auto_run_date` for confirmed automatic starts, `last_run_at` / `last_run_kind` for immutable historical diagnostics, and `last_skip_at` / `last_skip_reason` for excluded starts. Configured chains propagate regular skips but do not treat them as completed runs, so later distinct upstream triggers remain possible. A successful automatic start consumes the day's allowance until an admin `wetsoil/action` with `action=reset_today` clears the daily markers. The command cannot operate any valve and rejects active/partially owned runs. Legacy `last_attempt` data is intentionally discarded because it represented attempts, not actual watering. Today's occurrence checks still honor month/day filters and HA local timezone.

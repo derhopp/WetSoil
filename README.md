@@ -66,3 +66,13 @@ WetSoil **does not perform independent safety shutdown**. The user must provide 
 Under **Precipitation sensor type**, choose **Actual precipitation intensity (mm/h)** for a measured rain-rate entity. Supported units include `mm/h`, `mm/d`, `in/h`, `in/d`, `cm/h` and `cm/d`. WetSoil queries the Home Assistant Recorder for **exactly the previous 72 elapsed hours** and integrates the recorded rate over time (mm/h × hours) to find the rainfall total in mm. The weather algorithm receives one-third of that total as its average rainfall in mm/day. A sample's value is held until the next recorded change, as Recorder stores state changes rather than necessarily periodic samples.
 
 This is separate from `daily` and `total` measurement modes, which continue to use completed local calendar days. Missing initial Recorder state, invalid readings, unavailable sensor, missing Recorder, or missing history yield **unavailable**, not a dry (zero rain) estimate. The card's History source status shows `intensity_72h_complete` when the rate history was usable. Rainfall history is measured data, not weather forecasts. Recorder data can be excluded by your Home Assistant configuration.
+
+## Actual runs versus skipped automatic attempts
+
+From this version onward, a scheduled slot that was checked but did **not** start a valve is only a **skipped attempt**. Disabled automation, missing sensors/history, rain veto or ineligible weather do not mark that circuit as watered. An explicitly changed later HH:MM time may therefore run on the same day when the required gates become valid.
+
+The scheduler prevents repeated attempts for the **same exact local date and HH:MM**, while a successfully started automatic watering run is marked once per local day. A completed automatic run will not run again that day unless an administrator explicitly resets the status; this protection applies independently to chained circuits. Manual starts are visible as actual starts but do not consume the automatic day's allowance.
+
+The card displays *Started today*, *Automatic run started today*, last real start, and the latest skip reason. Its **Reset today's run status** action clears the daily markers for the selected circuit without operating actuators or immediately triggering watering; the last actual start timestamp remains available as history. Reset is blocked during active or partly started WetSoil runs. A previously saved `last_attempt` from older versions is never treated as proof of irrigation.
+
+Automatic watering can now be enabled while weather/history information is incomplete; the scheduler will skip the upcoming slot, recording its reason, rather than rejecting the configuration. Independent hardware safety remains the user's responsibility.
