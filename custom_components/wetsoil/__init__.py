@@ -53,7 +53,7 @@ async def async_setup_entry(hass, entry):
 
 
 async def async_unload_entry(hass, entry):
-    """Fail closed before the entities are removed."""
+    """Unload without sending actuator commands."""
     circuit = hass.data[DOMAIN][entry.entry_id]
     await circuit.shutdown()
     unloaded = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)

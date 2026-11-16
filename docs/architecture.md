@@ -28,3 +28,8 @@ The daily mode accepts a nondecreasing day counter, and total mode accepts a non
 ## Remaining risks
 
 The Home Assistant runtime, frontend resource registration and live valve behavior must be tested together on a real HA instance. DST and midnight-spanning chains, weather-provider differences, stop races and power interruption recovery need more integration tests. The frontend static route is bundled with the Python integration but Dashboard Resources may need manual configuration.
+
+
+## Explicit actuator ownership (2026-11-16)
+
+WetSoil only controls actuators associated with an active, internally started run. No startup, periodic, rain-triggered, state-triggered, recovery or unload-time shutdowns remain. Normal expiry and explicit stop send one OFF request for switches WetSoil switched on. On partial start failure, owned devices can only be switched off via an explicit Stop. On unload, timers are cancelled without changing any actuator states. After restart, prior runs are not resumed and no OFF requests are emitted. Independent user-operated protection is mandatory.

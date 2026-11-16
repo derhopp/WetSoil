@@ -54,3 +54,8 @@ Valve commands are best-effort Home Assistant switch service calls with bounded 
 - HACS validation requires configuring the repository About description and Topics on GitHub (not files in this repository).
 
 GitHub Actions check Python tests, source imports, frontend syntax, hassfest and HACS. See https://github.com/derhopp/WetSoil/actions. No tags/releases were created.
+
+
+## Actuator ownership (updated 2026-11-16)
+
+WetSoil **does not perform independent safety shutdown**. The user must provide external hardware/automation protection against stuck valves, power loss, Home Assistant restarts or integration unloads. WetSoil **never switches actuators off while idle**, at integration startup/unload, on rain/state changes, or during recovery. Manual control outside WetSoil remains possible. WetSoil refuses to start its own run if an assigned switch already reports ON. For **its own started run only**, a completed countdown or explicit Stop issues one normal OFF command, without confirmation retries or safety lockouts. Unload cancels WetSoil's timer **without switching actuators off**. A partial start failure may leave an actuator ON; use explicit Stop or independent controls. Do not use unattended without independently verified fail-safe measures.

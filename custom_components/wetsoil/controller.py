@@ -1,4 +1,4 @@
-"""WetSoil circuit runtime: fail-closed valve control and linear scheduling."""
+"""WetSoil circuit runtime: manages only irrigation runs started by WetSoil."""
 from __future__ import annotations
 
 import asyncio
@@ -38,7 +38,7 @@ class Circuit:
         self.ended = None
         self.ends = None
         self.last_attempt = None
-        self.recovery_required = False
+        self._owned_valves = set()
         self.events = deque(maxlen=30)
         self._task = None
         self._unsub = []
@@ -62,21 +62,19 @@ class Circuit:
             _LOGGER.exception("WetSoil invalid stored config")
             self.config = defaults()
         self.last_attempt = saved.get("last_attempt")
-        self.recovery_required = bool(saved.get("running"))
         await self.weather.setup()
-        # After restart an interrupted run must never be resumed.
-        if self.recovery_required:
-            self.events.append("Interrupted run aborted on Home Assistant restart")
-            self.status = "recovering"
-        if self.config["valves"]:
-            await self._off()
+        # Do not touch actuators after restart, including an interrupted run.
+        # The owner must provide independent fail-safe hardware/automation.
+        if saved.get("running"):
+            self.events.append("Interrupted run not resumed; external shutdown is the user's responsibility")
+            self.status = "stopped"
         await self._save()
         self._listen()
         self.hass.async_create_task(self.weather.update(self.config))
 
     def _listen(self):
         self._unlisten()
-        watched = set(self.config["valves"])
+        watched = set()
         for key in ("weather_entity", "rain_sensor", "precipitation_sensor"):
             if self.config[key]:
                 watched.add(self.config[key])
@@ -99,15 +97,8 @@ class Circuit:
 
     async def _check_state(self, event):
         self.weather.read_rain(self.config)
-        if self.running:
-            if self.weather.rain_blocked is not False:
-                await self.stop("rain_or_unknown", abort=True)
-            elif any(
-                self.hass.states.get(v) is None
-                or self.hass.states.get(v).state not in ("on",)
-                for v in self.config["valves"]
-            ):
-                await self.stop("valve_feedback_invalid", abort=True)
+        # External actuator changes and rain transitions must never issue
+        # unsolicited OFF commands. Start eligibility remains independent.
         if event.data.get("entity_id") == self.config["precipitation_sensor"]:
             # Sampling also occurs regularly to detect long data gaps.
             self.hass.async_create_task(self.weather.update(self.config))
@@ -188,8 +179,8 @@ class Circuit:
             new[key] != previous[key] for key in new if key != "automatic"
         ):
             raise ValueError("stop_before_changing_safety_parameters")
-        if self.running and self.kind == "auto" and not new["automatic"]:
-            await self.stop("disabled", abort=True)
+        # Disabling the schedule does not terminate an already running cycle.
+        # The user can explicitly stop that cycle.
         async with self.lock:
             self.config = new
             try:
@@ -212,9 +203,7 @@ class Circuit:
             return
         local = dt_util.as_local(now)
         if local.minute % 5 == 0 and local.second < 30:
-            if self.recovery_required:
-                await self._off()
-            await self.weather.update(self.config)
+             await self.weather.update(self.config)
             self.changed()
         settings = self.config
         if (settings["start_mode"] == "time"
@@ -287,13 +276,12 @@ class Circuit:
         async with self.lock:
             if self.running:
                 raise RuntimeError("already_running")
-            if self.recovery_required:
-                raise RuntimeError("recovery_incomplete")
-            for valve in self.config["valves"]:
+             for valve in self.config["valves"]:
                 state = self.hass.states.get(valve)
                 if state is None or state.state != "off":
                     raise RuntimeError("valve_not_off:" + valve)
             self.status = "starting"
+            self._owned_valves.clear()
             try:
                 for valve in self.config["valves"]:
                     await asyncio.wait_for(
@@ -301,14 +289,17 @@ class Circuit:
                             "switch", "turn_on", {"entity_id": valve}, blocking=True),
                         timeout=10,
                     )
+                    self._owned_valves.add(valve)
                 for valve in self.config["valves"]:
                     state = self.hass.states.get(valve)
                     if state is None or state.state != "on":
                         raise RuntimeError("valve_on_unconfirmed:" + valve)
             except Exception as exc:
-                self.error = str(exc)
+                self.error = "start_failed:" + str(exc)
                 self.status = "error"
-                await self._off()
+                self.events.append(
+                    "Start failed; actuators may remain on. Use explicit Stop or external controls."
+                )
                 self.changed()
                 raise RuntimeError(self.error) from exc
             now = dt_util.utcnow()
@@ -330,92 +321,64 @@ class Circuit:
         except asyncio.CancelledError:
             pass
 
-    # HA may publish the new switch state shortly after the service returns.
-    OFF_CONFIRM_TIMEOUT = 3.0
-    OFF_POLL_INTERVAL = 0.1
+    async def _off(self, valves):
+        """One ordinary OFF command per valve owned by a WetSoil run.
 
-    def _valve_is_off(self, valve):
-        """Read current HA feedback; 'off' is not proof of physical closure."""
-        state = self.hass.states.get(valve)
-        return state is not None and state.state == "off"
-
-    async def _wait_until_off(self, valve):
-        """Allow a bounded interval for a delayed state update."""
-        if self._valve_is_off(valve):
-            return True
-        loop = asyncio.get_running_loop()
-        deadline = loop.time() + self.OFF_CONFIRM_TIMEOUT
-        while loop.time() < deadline:
-            await asyncio.sleep(min(self.OFF_POLL_INTERVAL, max(0, deadline - loop.time())))
-            if self._valve_is_off(valve):
-                return True
-        return self._valve_is_off(valve)
-
-    async def _off(self):
-        """Skip already-off valves and retain recovery lock on uncertain state.
-
-        A service failure can still be considered confirmed if the final HA
-        feedback is off; the service result alone is never confirmation.
+        No safety retries, state polling, lockouts or background shutdowns.
         """
-        missing = []
-        for valve in self.config["valves"]:
-            if self._valve_is_off(valve):
-                continue
-            confirmed = False
-            for attempt in range(2):
-                try:
-                    await asyncio.wait_for(
-                        self.hass.services.async_call(
-                            "switch", "turn_off", {"entity_id": valve}, blocking=True),
-                        timeout=10,
-                    )
-                except Exception:
-                    _LOGGER.exception("WetSoil turn_off attempt %s failed for %s",
-                                      attempt + 1, valve)
-                if await self._wait_until_off(valve):
-                    confirmed = True
-                    break
-            if not confirmed:
-                missing.append(valve)
-        if missing:
-            self.recovery_required = True
-            self.error = "shutdown_unconfirmed:" + ", ".join(missing)
-            self.status = "error"
-            _LOGGER.error("WetSoil safety shutdown unconfirmed: %s", missing)
-            return False
-
-        self.recovery_required = False
-        if isinstance(self.error, str) and self.error.startswith("shutdown_unconfirmed:"):
-            self.error = None
-            if not self.running:
-                self.status = "idle"
-        elif self.status == "recovering" and not self.running:
-            self.status = "idle"
-        return True
+        errors = []
+        for valve in valves:
+            try:
+                await asyncio.wait_for(
+                    self.hass.services.async_call(
+                        "switch", "turn_off", {"entity_id": valve}, blocking=True
+                    ), timeout=10
+                )
+            except Exception as exc:
+                _LOGGER.warning("WetSoil stop command failed for %s: %s", valve, exc)
+                errors.append(valve)
+        return errors
 
     async def stop(self, reason="manual_stop", abort=True):
-        """Always command shutdown; never continue a chain on an abort."""
+        """End only a WetSoil-owned run. An idle stop cannot affect actuators."""
         async with self.lock:
             was_running, kind = self.running, self.kind
+            owned = tuple(self._owned_valves)
+            if not was_running and not owned:
+                return
             self.running = False
             self.kind = None
             if self._task is not None and self._task is not asyncio.current_task():
                 self._task.cancel()
             self._task = None
-            safe = await self._off()
+            self._owned_valves.clear()
+            errors = await self._off(owned)
             self.ended = dt_util.utcnow().isoformat()
             self.ends = None
-            if safe:
-                self.status = "idle" if reason == "complete" else "stopped"
-            if abort and was_running and safe:
-                self.error = reason
-            self.events.append("Watering stopped: " + reason)
+            self.status = "error" if errors else ("idle" if reason == "complete" else "stopped")
+            self.error = ("stop_command_failed:" + ",".join(errors)) if errors else None
+            self.events.append("WetSoil run stopped: " + reason)
             await self._save()
         self.changed()
-        if safe and was_running and kind == "auto" and reason == "complete":
+        if not errors and was_running and kind == "auto" and reason == "complete":
             await self._successor()
 
     async def shutdown(self):
+        """Release timers without ever altering actuator states during unload."""
         self._closed = True
         self._unlisten()
-        await self.stop("integration_unloaded", abort=True)
+        async with self.lock:
+            if self._task is not None:
+                self._task.cancel()
+                self._task = None
+            if self.running or self._owned_valves:
+                self.events.append(
+                    "WetSoil unloaded; actuator state left unchanged. External safety required."
+                )
+            self.running = False
+            self.kind = None
+            self._owned_valves.clear()
+            self.ends = None
+            self.status = "stopped"
+            await self._save()
+        self.changed()

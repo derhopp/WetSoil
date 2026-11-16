@@ -45,3 +45,8 @@ Schaltbefehle gehen an Home-Assistant-Switch-Entities, mit begrenzten Zeitübers
 Keine validierten Hardwaretests, kein automatisches Nachladen aus Recorder, keine stündliche Forecast-Ergänzung, keine automatisch eingetragene Dashboard-Ressource; einige Entity-Namen im Backend nur auf Englisch; weitere Integrationstests für Parallelität, Zeitumstellungen und Neustarts notwendig.
 
 CI-Ergebnisse: https://github.com/derhopp/WetSoil/actions. Entwicklung erfolgt auf main, ohne Releases oder Tags.
+
+
+## Aktorsteuerung und externe Absicherung (Änderung vom 16.11.2026)
+
+WetSoil führt **keine eigenständige Sicherheitsabschaltung** aus. Der Anwender muss Abschaltungen bei Fehler, Neustart, Stromausfall und Hängenbleiben eines Ventils außerhalb der Integration absichern. Im Leerlauf sowie bei Start, Entladen, Regen- oder Aktorzustandsänderungen schaltet WetSoil keine Aktoren aus. Externe Bedienung bleibt möglich. Bereits eingeschaltete Aktoren werden bei einem neuen WetSoil-Start nicht übernommen. **Nur für einen von WetSoil gestarteten Bewässerungslauf** sendet die Integration nach Laufzeitende oder ausdrücklichem Stopp einmal den normalen OFF-Befehl, ohne Sicherheits-Retries oder Recovery-Sperren. Beim Entladen wird ein WetSoil-Timer beendet, die Aktoren bleiben unverändert. Ein fehlgeschlagener Teilstart kann bereits aktivierte Aktoren zurücklassen; hier ist ein ausdrücklicher Stopp oder eine externe Abschaltung erforderlich.
