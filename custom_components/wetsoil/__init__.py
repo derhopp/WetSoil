@@ -9,7 +9,7 @@ import voluptuous as vol
 
 from homeassistant.components import websocket_api
 from homeassistant.components.http import StaticPathConfig
-from homeassistant.core import callback
+from homeassistant.core import callback, EVENT_HOMEASSISTANT_STARTED
 from homeassistant.helpers import device_registry as dr
 
 from .const import DOMAIN
@@ -33,6 +33,12 @@ async def async_setup(hass, config):
     ])
     for command in (ws_list, ws_update, ws_action):
         websocket_api.async_register_command(hass, command)
+    # A config entry may load before Lovelace. Retry when HA is fully started;
+    # the resource-registration operation is idempotent.
+    hass.bus.async_listen_once(
+        EVENT_HOMEASSISTANT_STARTED,
+        lambda event: hass.async_create_task(_register_dashboard_resource(hass)),
+    )
     return True
 
 
