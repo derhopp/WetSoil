@@ -223,7 +223,7 @@ class WetSoilCard extends HTMLElement {
     if (messages[prefix] && value.includes(":")) {
       return messages[prefix] + ": " + value.slice(prefix.length+1);
     }
-    return messages[value] || value;
+    return messages[value] || value.replaceAll("_"," ").replace(/^./,c=>c.toUpperCase());
   }
   _eventText(event) {
     if (typeof event !== "string") return String(event ?? "");
