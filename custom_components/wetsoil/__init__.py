@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import hashlib
 import logging
 import asyncio
 import voluptuous as vol
@@ -35,12 +36,54 @@ async def async_setup(hass, config):
     return True
 
 
+async def _register_dashboard_resource(hass):
+    """Register the bundled card once in UI-managed Lovelace resources.
+
+    Storage resources must be loaded BEFORE mutation. In YAML mode, never
+    alter the user's file. A hash in the URL refreshes cached browser modules.
+    """
+    try:
+        from homeassistant.components.lovelace.const import (
+            LOVELACE_DATA, MODE_STORAGE,
+        )
+        lovelace = hass.data.get(LOVELACE_DATA)
+        if lovelace is None or lovelace.resource_mode != MODE_STORAGE:
+            _LOGGER.info(
+                "WetSoil dashboard resource needs manual registration in YAML mode "
+                "or until Lovelace is ready"
+            )
+            return
+        resources = lovelace.resources
+        # Guard against preloaded=false resource collections (historical
+        # Lovelace storage corruption). async_get_info() ensures loading.
+        await resources.async_get_info()
+        base = "/wetsoil/wetsoil-card.js"
+        source = Path(__file__).parent / "frontend" / "wetsoil-card.js"
+        digest = hashlib.sha256(source.read_bytes()).hexdigest()[:12]
+        url = f"{base}?v={digest}"
+        matched = [
+            item for item in resources.async_items()
+            if item.get("url", "").split("?")[0] == base
+        ]
+        if matched:
+            current = matched[0]
+            if current.get("url") != url or current.get("type") != "module":
+                await resources.async_update_item(
+                    current["id"], {"url": url, "res_type": "module"}
+                )
+        else:
+            await resources.async_create_item({"url": url, "res_type": "module"})
+    except Exception:
+        _LOGGER.exception("WetSoil Lovelace resource registration failed")
+
+
 async def async_setup_entry(hass, entry):
     """Load a circuit and expose native Home Assistant entities."""
     circuit = Circuit(hass, entry)
     await circuit.setup()
     hass.data[DOMAIN][entry.entry_id] = circuit
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    await _register_dashboard_resource(hass)
     area = entry.data.get("area_id")
     if area:
         registry = dr.async_get(hass)
