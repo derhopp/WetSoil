@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime, timezone
 import importlib.util
 import sys
 from pathlib import Path
@@ -27,7 +28,7 @@ def circuit_class(monkeypatch):
     modules["homeassistant.helpers.storage"].Store = object
     dt = modules["homeassistant.util.dt"]
     dt.now = lambda: None
-    dt.utcnow = lambda: None
+    dt.utcnow = lambda: datetime.now(timezone.utc)
     dt.as_local = lambda x: x
     dt.parse_datetime = lambda x: None
     for name, module in modules.items():
