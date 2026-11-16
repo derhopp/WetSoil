@@ -140,11 +140,53 @@ function elem(tag, text=null, className=null) {
 
 class WetSoilCard extends HTMLElement {
   setConfig(config) {
+    const oldId=this._config?.entry_id;
     this._config = config || {};
+    if (oldId !== this._config.entry_id) this._refresh();
     this._render();
   }
+  connectedCallback() {
+    this._connected = true;
+    if (this._hass) this._subscribe();
+  }
+  disconnectedCallback() {
+    this._connected = false;
+    this._unsubscribe();
+    if (this._countdownTimer) clearInterval(this._countdownTimer);
+    this._countdownTimer = null;
+  }
+  _unsubscribe() {
+    const cancel = this._unsubscribeEvents;
+    this._unsubscribeEvents = null;
+    this._subscribedConnection = null;
+    if (typeof cancel === "function") cancel();
+  }
+  _subscribe() {
+    const connection=this._hass?.connection;
+    if (!connection || !this._connected) return;
+    if (this._subscribedConnection===connection) return;
+    this._unsubscribe();
+    this._subscribedConnection=connection;
+    if (typeof connection.subscribeEvents !== "function") return;
+    const subscription=connection.subscribeEvents(event=>{
+      if (!this._connected) return;
+      const entryId=event?.data?.entry_id;
+      if (entryId===this._config?.entry_id) this._refresh();
+    }, "wetsoil_updated");
+    Promise.resolve(subscription).then(cancel=>{
+      if (this._connected && this._subscribedConnection===connection) {
+        this._unsubscribeEvents=cancel;
+      } else if(typeof cancel==="function") cancel();
+    }).catch(error=>{
+      if (this._subscribedConnection===connection) this._subscribedConnection=null;
+      console.warn("WetSoil: live subscription unavailable",error);
+    });
+  }
   set hass(hass) {
+    const previous=this._hass?.connection;
     this._hass = hass;
+    if (previous!==hass?.connection) this._unsubscribe();
+    this._subscribe();
     if (!this._loading && (!this._loaded || (!this._editing && Date.now()-(this._at||0)>10000))) {
       this._refresh();
     }
@@ -228,7 +270,11 @@ class WetSoilCard extends HTMLElement {
     }
   }
   async _refresh() {
-    if (!this._hass || this._loading) return;
+    if (!this._hass) return;
+    if (this._loading) {
+      this._refreshQueued=true;
+      return;
+    }
     this._loading=true;
     try {
       this._circuits=await this._hass.callWS({type:"wetsoil/list"});
@@ -237,6 +283,10 @@ class WetSoilCard extends HTMLElement {
     } catch(error) { this._error=this._errorText(error); }
     this._loading=false;
     this._render();
+    if (this._refreshQueued) {
+      this._refreshQueued=false;
+      await this._refresh();
+    }
   }
   _current() {
     // Never redirect reads or writes to a different circuit.
@@ -376,6 +426,22 @@ class WetSoilCard extends HTMLElement {
         this._metric(metrics,key,value,unit);
       }
     root.append(metrics);
+    if (this._countdownTimer) clearInterval(this._countdownTimer);
+    this._countdownTimer=null;
+    if (c.running && Number(c.remaining_seconds)>0 && this._connected) {
+      const until=Date.now()+Math.max(0,Number(c.remaining_seconds))*1000;
+      const remainingMetric=Array.from(metrics.children).find(x=>x.firstChild?.textContent===this._t("remaining"));
+      const display=remainingMetric?.querySelector("strong");
+      if (display) this._countdownTimer=setInterval(()=>{
+        const remaining=Math.max(0,Math.ceil((until-Date.now())/1000));
+        display.textContent=remaining+" s";
+        if (remaining===0) {
+          clearInterval(this._countdownTimer);
+          this._countdownTimer=null;
+          this._refresh();
+        }
+      },1000);
+    }
     const active=elem("label");
     const check=elem("input");check.type="checkbox";check.checked=c.config.automatic;
     check.onchange=()=>{

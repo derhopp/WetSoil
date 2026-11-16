@@ -131,3 +131,31 @@ test("human-readable status labels cover precipitation and source diagnoses",()=
   assert.equal(card._humanize("intensity_72h_complete"),
     "72-hour precipitation intensity history complete");
 });
+
+
+test("live event subscription updates only its assigned circuit and unsubscribes",async()=>{
+  const Card=loadCard(),card=new Card();
+  let handler,subscribed=0,unsubscribed=0,refreshes=0;
+  const connection={
+    subscribeEvents(fn,kind) {
+      assert.equal(kind,"wetsoil_updated");
+      handler=fn;subscribed++;
+      return Promise.resolve(()=>{unsubscribed++;});
+    }
+  };
+  card._config={entry_id:"test-2"};
+  card._refresh=async()=>{refreshes++;};
+  card._render=()=>{};
+  card.hass={connection,language:"en"};
+  card.connectedCallback();
+  await Promise.resolve();
+  assert.equal(subscribed,1);
+  handler({data:{entry_id:"test-1"}});
+  assert.equal(refreshes,1); // initial hass setter only
+  handler({data:{entry_id:"test-2"}});
+  assert.equal(refreshes,2);
+  card.disconnectedCallback();
+  assert.equal(unsubscribed,1);
+  handler({data:{entry_id:"test-2"}});
+  assert.equal(refreshes,2);
+});
