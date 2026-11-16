@@ -337,9 +337,25 @@ class WetSoilWeather:
                         self.intensity_total_72h = None
                         self.rain_3d = None
                         self.intensity_sensor_id = sensor_id
-                    if (self.intensity_last_fetch is None
+                    from .recorder_history import (
+                        intensity_mm_per_hour, read_intensity_recorder,
+                    )
+                    latest = self.hass.states.get(sensor_id)
+                    rate_valid = (
+                        latest is not None
+                        and intensity_mm_per_hour(
+                            latest.state,
+                            latest.attributes.get("unit_of_measurement"),
+                        ) is not None
+                    )
+                    if not rate_valid:
+                        # Never reuse a cached 72h mean after sensor loss.
+                        self.intensity_total_72h = None
+                        self.rain_3d = None
+                        self.history_error = "intensity_sensor_unavailable"
+                        self.intensity_last_fetch = None
+                    elif (self.intensity_last_fetch is None
                             or (now - self.intensity_last_fetch).total_seconds() >= 300):
-                        from .recorder_history import read_intensity_recorder
                         self.intensity_last_fetch = now
                         total, status = await read_intensity_recorder(
                             self.hass, sensor_id, now
