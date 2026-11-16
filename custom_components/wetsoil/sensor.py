@@ -62,7 +62,10 @@ class WetSoilSensor(WetSoilEntity, SensorEntity):
             end = dt_util.parse_datetime(circuit.ends)
             return max(0, (end - dt_util.utcnow()).total_seconds()) if end else None
         if key in ("temperature", "rain_today", "rain_3d", "quality"):
-            return getattr(weather, key)
+            value = getattr(weather, key)
+            if isinstance(value, (int, float)) and not isinstance(value, bool):
+                return round(value, 1 if key == "temperature" else 2)
+            return value
         if key in ("temp_factor", "today_factor", "history_factor"):
             calc = circuit.calculation()
             return getattr(calc, {

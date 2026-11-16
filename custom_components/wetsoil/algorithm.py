@@ -35,6 +35,11 @@ def calculate(
         return Calculation(None, None, None, None, "invalid_precipitation")
     if max_rain_today <= 0 or max_rain_3d <= 0 or max_temp <= min_temp or base_seconds <= 0:
         return Calculation(None, None, None, None, "invalid_parameters")
+    # Business thresholds use the same precision shown in the dashboard.
+    # Never round an unavailable/invalid reading into a valid value.
+    rain_today = round(rain_today, 2)
+    rain_3d = round(rain_3d, 2)
+    temperature = round(temperature, 1)
     temp_factor = (
         1 + (temperature - min_temp) / (2 * (max_temp - min_temp))
         if temperature < max_temp else 1.5

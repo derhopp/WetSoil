@@ -230,7 +230,13 @@ class WetSoilCard extends HTMLElement {
   _metric(host,key,value,unit="") {
     const container=elem("div",null,"metric");
     container.append(elem("small",this._t(key)));
-    const text=value===null || value===undefined?this._t("unavailable"):String(value);
+    const decimals = key==="temp" ? 1 : (
+      ["forecast","measured"].includes(key) ? 2 : null);
+    const text=value===null || value===undefined?this._t("unavailable"):(
+      decimals!==null && typeof value==="number" && Number.isFinite(value)
+        ? new Intl.NumberFormat(this._hass?.locale?.language||this._hass?.language||"en",
+            {minimumFractionDigits:decimals,maximumFractionDigits:decimals}).format(value)
+        : String(value));
     container.append(elem("strong",text+((value===null || value===undefined)?"":unit)));
     host.append(container);
   }

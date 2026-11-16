@@ -212,9 +212,9 @@ class Circuit:
             ),
             "started_at": self.started,
             "last_end": self.ended,
-            "rain_today": self.weather.rain_today,
-            "rain_3d": self.weather.rain_3d,
-            "temperature": self.weather.temperature,
+            "rain_today": round(self.weather.rain_today, 2) if self.weather.rain_today is not None else None,
+            "rain_3d": round(self.weather.rain_3d, 2) if self.weather.rain_3d is not None else None,
+            "temperature": round(self.weather.temperature, 1) if self.weather.temperature is not None else None,
             "raining": self.weather.raining,
             "weather_raining": self.weather.weather_raining,
             "sensor_raining": self.weather.sensor_raining,
@@ -229,7 +229,8 @@ class Circuit:
                 for day in self.weather.history.days
             },
             "history_status": self.weather.history_error,
-            "intensity_total_72h": self.weather.intensity_total_72h,
+            "intensity_total_72h": (round(self.weather.intensity_total_72h, 2)
+                                    if self.weather.intensity_total_72h is not None else None),
             "factors": {"temp": calc.temp_factor,
                         "today": calc.rain_today_factor,
                         "history": calc.rain_3d_factor},
