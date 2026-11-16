@@ -23,7 +23,7 @@ Unknown rain, incomplete measured precipitation history and invalid forecast val
 
 ## Historical sensor model
 
-The daily mode accepts a nondecreasing day counter, and total mode accepts a nondecreasing cumulative counter. Resets and gaps invalidate a local day. Only three *completed* preceding local days enter the mean; today is omitted. Sampling roughly every five minutes requires a minimum observation coverage per day. The current version does not backfill Recorder history and may require a three-day warm-up.
+The daily mode accepts a nondecreasing day counter, and total mode accepts a nondecreasing cumulative counter. Resets and gaps invalidate a local day. Only three *completed* preceding local days enter the mean; today is omitted. Sampling roughly every five minutes requires a minimum observation coverage per day. Recorder backfill is attempted for the three prior completed local days using a history query off the event loop. The aggregation accepts only dense, monotonic, unit-consistent samples, validates real local-day durations on DST changes, and merges valid values without overwriting stored completed days. Recorder records may be sparse even for otherwise healthy sensors; no data is fabricated and a three-day local warm-up may still be needed. Day provenance (observed/recorder) is exposed to the WebSocket API.
 
 ## Remaining risks
 
@@ -33,3 +33,8 @@ The Home Assistant runtime, frontend resource registration and live valve behavi
 ## Explicit actuator ownership (2026-11-16)
 
 WetSoil only controls actuators associated with an active, internally started run. No startup, periodic, rain-triggered, state-triggered, recovery or unload-time shutdowns remain. Normal expiry and explicit stop send one OFF request for switches WetSoil switched on. On partial start failure, owned devices can only be switched off via an explicit Stop. On unload, timers are cancelled without changing any actuator states. After restart, prior runs are not resumed and no OFF requests are emitted. Independent user-operated protection is mandatory.
+
+
+## Weather forecast provider switching
+
+Weather caching is scoped to the selected entity and local date, with the cache reset on provider changes. The integration attempts a complete-day hourly forecast first and falls back to a valid daily forecast. Incomplete hourly precipitation is never treated as an entire day's total. Forecast source, last refresh, and error state are included in the runtime snapshot. A stale/unavailable provider yields unavailable values rather than retaining a previous entity's data.

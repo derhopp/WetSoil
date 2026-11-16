@@ -22,9 +22,9 @@ Automatik deaktiviert; Basisberegnungszeit 30 Sekunden; Niederschlagsgrenze heut
 
 ## Wetterdaten
 
-Die Wetter-Entity liefert die tägliche Temperatur- und Regenprognose, soweit der Anbieter geeignete Felder bereitstellt. Temperatur wird in Grad Celsius, Regen in Millimeter normalisiert. Eine stündliche Fallback-Prognose fehlt noch.
+WetSoil versucht zuerst eine vollständige Stundenprognose für den **gesamten lokalen Kalendertag**. Fehlen Stundenwerte oder unterstützt die Weather-Entity nur `daily`, wird automatisch die Tagesprognose verwendet. Die Einheiten werden nach °C und mm umgerechnet. Beim Wechsel der Weather-Entity wird der alte Cache sofort ungültig; Werte der bisherigen Quelle dürfen nicht weiter angezeigt werden. Eine Stundenprognose nur für die verbleibenden Tagesstunden ist absichtlich keine vollständige Tagesprognose.
 
-Für die historischen Niederschlagsmengen wird ein echter Messsensor benötigt. Unterstützt werden tägliche Summen und kumulative Zähler. Die Integration nimmt etwa alle fünf Minuten Messwerte auf und speichert sie persistent. Mindestens **drei vollständig beobachtete Kalendertage** sind notwendig, bevor der Mittelwert vorliegt. Bei Datenlücken, Sensor-Neustarts oder Zählerrücksetzungen wird der Wert vorsichtig als nicht verfügbar behandelt. Prognosen werden niemals als echte historische Messungen verwendet. Eine automatische Recorder-Rückfüllung fehlt noch.
+Für historische Niederschlagswerte wird ein echter Messsensor benötigt; unterstützt werden Tagessummen und kumulative Zähler. WetSoil speichert selbst Messwerte und versucht zusätzlich, die vergangenen drei abgeschlossenen Tage aus dem **Home-Assistant-Recorder** zurückzufüllen. Dies gelingt nur bei ausreichend dicht aufgezeichneten, konsistenten Messwerten ohne größere Lücken, zurückgesetzte Zähler oder Einheitenwechsel. Recorder zeichnet unter Umständen nur Zustandsänderungen auf; bei konstanten Sensorwerten ist eine vollständige Abdeckung daher nicht automatisch belegbar. Solche Tage bleiben **nicht verfügbar**, niemals null. Bei lückenhafter Historie sind weiterhin mehrere vollständig überwachte Tage nötig. Prognosen zählen niemals als tatsächliche Messung.
 
 Der aktuelle Regenzustand wird aus der Wetter-Entity sowie einem optionalen Regen-Binary-Sensor ermittelt. Unbekannte Zustände werden nicht als „kein Regen“ interpretiert.
 
@@ -42,7 +42,7 @@ Schaltbefehle gehen an Home-Assistant-Switch-Entities, ohne automatische Sicherh
 
 ## Bekannte Einschränkungen
 
-Keine validierten Hardwaretests, kein automatisches Nachladen aus Recorder, keine stündliche Forecast-Ergänzung, keine automatisch eingetragene Dashboard-Ressource; einige Entity-Namen im Backend nur auf Englisch; weitere Integrationstests für Parallelität, Zeitumstellungen und Neustarts notwendig.
+Keine validierten Hardwaretests; Recorder-Backfill nur mit vollständiger Messabdeckung, bei fehlender Tagesprognose keine Schätzung aus unvollständigen Stundenwerten; keine automatisch eingetragene Dashboard-Ressource; einige Entity-Namen im Backend nur auf Englisch; weitere Integrationstests für Parallelität, Zeitumstellungen und Neustarts notwendig.
 
 CI-Ergebnisse: https://github.com/derhopp/WetSoil/actions. Entwicklung erfolgt auf main, ohne Releases oder Tags.
 

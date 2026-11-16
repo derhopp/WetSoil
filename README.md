@@ -27,9 +27,9 @@ Different circuits can share one weather entity, but assigned valve switches mus
 
 ## Weather and historical rainfall
 
-The weather entity supplies daily forecast temperature and precipitation where the provider supports these. Rainfall and temperature units are converted to mm and °C. Hourly forecast fallback is not yet implemented.
+Forecast selection now attempts a complete hourly forecast for the **entire current local calendar day** first; if hourly forecasts are unsupported or incomplete, it falls back to the provider's daily forecast. Both temperature and rain values are converted to °C and mm. Changing the selected Weather Entity invalidates the cache and requests the new provider immediately. Values are never retained from the previous provider. For hourly forecasts that begin only at the current hour, the daily fallback is intentionally used, since past hourly rain cannot be assumed zero.
 
-Actual rainfall history comes only from a compatible selected sensor. Daily total and cumulative counter modes are supported, with approximately five-minute sampling and a persistent Store. After enabling a sensor, at least **three fully observed days** are required before the history gate can allow watering. Gaps, unknown states and counter resets invalidate observations. The integration does not backfill history from Recorder yet. Forecasts are never substituted for observed history.
+Actual rainfall history comes only from a compatible selected sensor. Daily total and cumulative counter modes are supported. WetSoil maintains five-minute local samples and now attempts to backfill the previous three completed local days using **Home Assistant Recorder** when available. Recorder can store only state changes; a constant or infrequently updated sensor may not provide sufficient evidence of day-long coverage. Backfill is therefore accepted only for sufficiently dense, continuous, unit-consistent observations covering the local day's boundaries (including DST). Incomplete days, resets, unsupported units, missing Recorder and sensor changes are treated as unavailable, never zero. No forecast values are substituted for actual observations. The source of each accepted day is exposed in the WetSoil status API. If Recorder lacks complete samples, a multi-day warm-up remains necessary.
 
 Current rain is evaluated from the weather entity and optional binary rain sensor; unknown sources never count as confirmed dry.
 
@@ -48,7 +48,7 @@ Valve commands are best-effort Home Assistant switch service calls. There are **
 ## Known limitations
 
 - No successful end-to-end running Home Assistant / physical valve test.
-- No Recorder backfill, no hourly forecast fallback and no automatic Lovelace resource registration.
+- Recorder backfill is conservative and requires sufficiently dense historical measurements. Missing, excluded or sparse Recorder data cannot be recovered. Forecast daily fallback is available; providers without a complete daily forecast still yield unavailable. Automatic Lovelace resource registration is not implemented.
 - Some native backend entity labels and diagnostics are still English.
 - Integration-level concurrency, daylight-saving-time and recovery testing remains incomplete.
 - HACS validation requires configuring the repository About description and Topics on GitHub (not files in this repository).

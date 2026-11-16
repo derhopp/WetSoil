@@ -7,6 +7,7 @@ const LANG = {
     valves:"Valves",schedule:"Schedule",parameters:"Calculation parameters",
     measured:"Observed rain, last 3 days",forecast:"Forecast rain today",temp:"Max temperature",
     raining:"Currently raining",quality:"Data quality",reason:"Reason",saved:"Settings saved",
+    forecastSource:"Forecast source",forecastEntity:"Forecast entity",historyStatus:"History source status",
     error:"Error",save:"Save settings",events:"Recent events",seconds:"seconds",
     weather_entity:"Weather entity",rain_sensor:"Rain binary sensor",
     precipitation_sensor:"Observed precipitation sensor",
@@ -43,6 +44,7 @@ const LANG = {
     valves:"Ventile",schedule:"Zeitplanung",parameters:"Berechnungsparameter",
     measured:"Gemessener Regen, letzte 3 Tage",forecast:"Regenprognose heute",temp:"Maximale Temperatur",
     raining:"Aktueller Regen",quality:"Datenqualität",reason:"Sperrgrund",saved:"Einstellungen gespeichert",
+    forecastSource:"Prognosequelle",forecastEntity:"Wetter-Entity",historyStatus:"Status der Niederschlagshistorie",
     error:"Fehler",save:"Einstellungen speichern",events:"Letzte Ereignisse",seconds:"Sekunden",
     weather_entity:"Wetter-Entity",rain_sensor:"Regen-Binary-Sensor",
     precipitation_sensor:"Gemessener Niederschlagssensor",
@@ -279,7 +281,9 @@ class WetSoilCard extends HTMLElement {
       ["planned",c.planned_seconds," s"],["remaining",Math.round(c.remaining_seconds||0)," s"],
       ["temp",c.temperature," °C"],["forecast",c.rain_today," mm"],
       ["measured",c.rain_3d," mm/day"],["raining",c.raining,""],
-      ["quality",c.quality,""],["reason",c.rain_source_disagreement
+      ["quality",c.quality,""],["forecastSource",c.forecast_source,""],
+      ["forecastEntity",c.forecast_entity,""],["historyStatus",c.history_status,""],
+      ["reason",c.rain_source_disagreement
         ? this._t("rainConflict") : c.reason,""],
       ["next",this._formatNextStart(c.next_start),""]]) {
         this._metric(metrics,key,value,unit);
