@@ -505,3 +505,34 @@ async def test_manual_run_is_visible_but_does_not_consume_auto_day(circuit_class
     assert circuit.last_started_date == "2026-11-16"
     assert circuit.last_auto_run_date is None
     assert circuit.last_run_kind == "manual"
+
+
+@pytest.mark.asyncio
+async def test_skipped_0700_slot_does_not_block_rescheduled_1600_slot(circuit_class):
+    from zoneinfo import ZoneInfo
+    hass=MockHass("off")
+    hass.config=SimpleNamespace(time_zone="Europe/Berlin")
+    circuit=make_circuit(circuit_class,hass)
+    cfg=sys.modules["wetsoil_off_test.const"].defaults()
+    cfg.update({"automatic":False,"months":[11],"start_time":"07:00"})
+    circuit.config=cfg
+    circuit._refresh_weather=lambda:asyncio.sleep(0)
+    circuit.weather=SimpleNamespace(forecast_source="daily",last_fetch=None)
+    attempts=[]
+
+    async def fake_attempt():
+        attempts.append(circuit.config["start_time"])
+        circuit._record_skip("automatic_disabled")
+    circuit.auto_attempt=fake_attempt
+    before=datetime(2026,11,16,7,0,tzinfo=ZoneInfo("Europe/Berlin"))
+    await circuit._tick(before)
+    await circuit._tick(before.replace(second=30))
+    assert attempts==["07:00"]
+    assert circuit.last_auto_run_date is None
+    cfg["start_time"]="16:00"
+    cfg["automatic"]=True
+    later=datetime(2026,11,16,16,0,tzinfo=ZoneInfo("Europe/Berlin"))
+    await circuit._tick(later)
+    await circuit._tick(later.replace(second=30))
+    assert attempts==["07:00","16:00"]
+    assert circuit.last_slot=="2026-11-16@16:00"
