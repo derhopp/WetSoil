@@ -1,5 +1,7 @@
 """Status, calculations, weather data, and configuration diagnostics."""
 from homeassistant.components.sensor import SensorEntity
+from homeassistant.util import dt as dt_util
+from .schedule import next_scheduled
 from .entity import WetSoilEntity
 
 DESCRIPTIONS = {
@@ -34,22 +36,68 @@ async def async_setup_entry(hass, entry, async_add_entities):
 class WetSoilSensor(WetSoilEntity, SensorEntity):
     def __init__(self, circuit, key, name, unit):
         super().__init__(circuit, key, name)
+        self._next_start_cache = None
         if unit is not None:
             self._attr_native_unit_of_measurement = unit
 
     @property
     def native_value(self):
-        snapshot = self.circuit.snapshot()
-        special = {
-            "temp_factor": snapshot["factors"]["temp"],
-            "today_factor": snapshot["factors"]["today"],
-            "history_factor": snapshot["factors"]["history"],
-            "last_start": snapshot["started_at"],
-            "last_end": snapshot["last_end"],
-            "config": "configured",
-            "events": (snapshot["events"][-1] if snapshot["events"] else None),
-        }
-        return special[self._key] if self._key in special else snapshot.get(self._key)
+        """Read only this sensor's fields; never build a full WebSocket snapshot."""
+        circuit = self.circuit
+        weather = circuit.weather
+        key = self._key
+        if key == "status":
+            return circuit.status
+        if key == "reason":
+            return (circuit.error or
+                    ("rain_sources_disagree" if weather.rain_source_disagreement
+                     else circuit.calculation().reason))
+        if key == "computed_seconds":
+            return circuit.calculation().seconds
+        if key == "planned_seconds":
+            return circuit.planned()
+        if key == "remaining_seconds":
+            if circuit.ends is None:
+                return 0
+            end = dt_util.parse_datetime(circuit.ends)
+            return max(0, (end - dt_util.utcnow()).total_seconds()) if end else None
+        if key in ("temperature", "rain_today", "rain_3d", "quality"):
+            return getattr(weather, key)
+        if key in ("temp_factor", "today_factor", "history_factor"):
+            calc = circuit.calculation()
+            return getattr(calc, {
+                "temp_factor": "temp_factor",
+                "today_factor": "rain_today_factor",
+                "history_factor": "rain_3d_factor",
+            }[key])
+        if key == "last_start":
+            return circuit.started
+        if key == "last_end":
+            return circuit.ended
+        if key == "next_start":
+            if circuit.config["start_mode"] == "chained":
+                return "after:" + circuit.config["predecessor"]
+            now = dt_util.now()
+            config_key = (
+                circuit.config["start_time"],
+                tuple(circuit.config["weekdays"]),
+                tuple(circuit.config["months"]),
+            )
+            cached = self._next_start_cache
+            if cached and cached[0] == config_key and now < cached[1]:
+                return cached[2]
+            next_time = next_scheduled(
+                now, circuit.config["start_time"],
+                circuit.config["weekdays"], circuit.config["months"])
+            value = next_time.isoformat() if next_time else None
+            from datetime import timedelta
+            self._next_start_cache = (config_key, now + timedelta(seconds=60), value)
+            return value
+        if key == "config":
+            return "configured"
+        if key == "events":
+            return circuit.events[-1] if circuit.events else None
+        return None
 
     @property
     def extra_state_attributes(self):

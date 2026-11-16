@@ -100,7 +100,7 @@ class Circuit:
     async def _check_state(self, event):
         self.weather.read_rain(self.config)
         if self.running:
-            if self.weather.raining is not False:
+            if self.weather.rain_blocked is not False:
                 await self.stop("rain_or_unknown", abort=True)
             elif any(
                 self.hass.states.get(v) is None
@@ -118,7 +118,7 @@ class Circuit:
         return calculate(
             c["base_seconds"], c["max_rain_today"], c["max_rain_3d"],
             c["min_temp"], c["max_temp"], w.rain_today, w.rain_3d,
-            w.temperature, w.raining,
+            w.temperature, w.rain_blocked,
         )
 
     def planned(self):
@@ -147,7 +147,11 @@ class Circuit:
             "error": self.error,
             "running": self.running,
             "kind": self.kind,
-            "reason": self.error or calc.reason,
+            "reason": (
+                self.error or
+                ("rain_sources_disagree" if self.weather.rain_source_disagreement
+                 else calc.reason)
+            ),
             "computed_seconds": calc.seconds,
             "planned_seconds": self.planned(),
             "remaining_seconds": max(0, (dt_util.parse_datetime(self.ends) - dt_util.utcnow()).total_seconds()) if self.ends else 0,
@@ -162,6 +166,9 @@ class Circuit:
             "rain_3d": self.weather.rain_3d,
             "temperature": self.weather.temperature,
             "raining": self.weather.raining,
+            "weather_raining": self.weather.weather_raining,
+            "sensor_raining": self.weather.sensor_raining,
+            "rain_source_disagreement": self.weather.rain_source_disagreement,
             "quality": self.weather.quality,
             "factors": {"temp": calc.temp_factor,
                         "today": calc.rain_today_factor,
@@ -265,7 +272,7 @@ class Circuit:
     async def start(self, manual=False):
         """Validate rain, turn on all switches and confirm their HA states."""
         await self.weather.update(self.config)
-        if self.weather.raining is not False:
+        if self.weather.rain_blocked is not False:
             raise RuntimeError("rain_or_unknown")
         if not self.config["valves"]:
             raise RuntimeError("no_valves")

@@ -179,6 +179,10 @@ class WetSoilWeather:
         self.rain_today = None
         self.rain_3d = None
         self.raining = None
+        self.rain_blocked = None
+        self.rain_source_disagreement = False
+        self.weather_raining = None
+        self.sensor_raining = None
         self.quality = "unavailable"
         self.last_fetch = None
         self.history = RainfallHistory(hass, entry_id)
@@ -187,26 +191,46 @@ class WetSoilWeather:
         await self.history.restore()
 
     def read_rain(self, settings):
-        """Unknown sources never translate to no rain."""
-        sources = []
+        """Report observed rain separately from the conservative safety veto.
+
+        An available dedicated rain sensor controls the displayed observation.
+        Conflicting weather conditions still inhibit watering until resolved.
+        """
         weather_id = settings["weather_entity"]
         sensor_id = settings["rain_sensor"]
+        weather_raining = None
+        sensor_raining = None
         if weather_id:
             state = self.hass.states.get(weather_id)
-            sources.append(
-                None if state is None or state.state in ("unknown", "unavailable")
-                else (True if state.state in RAIN_STATES
-                      else False if state.state in DRY_STATES else None)
-            )
+            if state and state.state in RAIN_STATES:
+                weather_raining = True
+            elif state and state.state in DRY_STATES:
+                weather_raining = False
         if sensor_id:
             state = self.hass.states.get(sensor_id)
-            sources.append(
-                None if state is None or state.state not in ("on", "off")
-                else state.state == "on"
-            )
-        self.raining = (True if True in sources
-                        else False if sources and all(v is False for v in sources)
-                        else None)
+            if state and state.state in ("on", "off"):
+                sensor_raining = state.state == "on"
+
+        self.weather_raining = weather_raining
+        self.sensor_raining = sensor_raining
+        self.raining = sensor_raining if sensor_id else weather_raining
+        self.rain_source_disagreement = (
+            bool(sensor_id and weather_id)
+            and sensor_raining is not None and weather_raining is not None
+            and sensor_raining != weather_raining
+        )
+        if self.rain_source_disagreement:
+            self.rain_blocked = None
+        elif sensor_id and sensor_raining is None:
+            self.rain_blocked = None
+        elif weather_id and weather_raining is None:
+            self.rain_blocked = None
+        elif sensor_raining is True or weather_raining is True:
+            self.rain_blocked = True
+        elif sensor_raining is False or weather_raining is False:
+            self.rain_blocked = False
+        else:
+            self.rain_blocked = None
         return self.raining
 
     async def update(self, settings, force=False):
