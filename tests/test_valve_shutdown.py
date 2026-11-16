@@ -258,3 +258,54 @@ async def test_setup_with_externally_active_valve_never_sends_off(circuit_class)
     assert hass.calls == []
     assert circuit.running is False
     assert circuit.status == "stopped"
+
+
+@pytest.mark.asyncio
+async def test_config_change_rearms_only_explicit_future_slot(circuit_class):
+    from zoneinfo import ZoneInfo
+    date_now = datetime(2026, 11, 16, 14, 14, tzinfo=ZoneInfo("Europe/Berlin"))
+    sys.modules["homeassistant.util.dt"].now = lambda: date_now
+    circuit = make_circuit(circuit_class, MockHass("off"))
+    defaults = sys.modules["wetsoil_off_test.const"].defaults
+    circuit.config = defaults()
+    circuit.config["start_time"] = "07:00"
+    circuit.config["months"] = [11]
+    circuit.last_attempt = "2026-11-16"
+    saved = []
+
+    async def persist():
+        saved.append((circuit.config["start_time"], circuit.last_attempt))
+    circuit._save = persist
+    circuit._listen = lambda: None
+    circuit.weather = SimpleNamespace(update=lambda cfg: asyncio.sleep(0))
+    await circuit.update_config({**circuit.config, "start_time":"15:00"})
+    assert circuit.config["start_time"] == "15:00"
+    assert circuit.last_attempt is None
+    assert saved[-1] == ("15:00", None)
+    # Mere changes to another parameter must preserve a consumed daily slot.
+    circuit.last_attempt = "2026-11-16"
+    await circuit.update_config({**circuit.config, "base_seconds": 45.0})
+    assert circuit.last_attempt == "2026-11-16"
+
+
+@pytest.mark.asyncio
+async def test_failed_config_save_restores_previous_daily_attempt(circuit_class):
+    from zoneinfo import ZoneInfo
+    sys.modules["homeassistant.util.dt"].now = lambda: datetime(
+        2026, 11, 16, 14, 14, tzinfo=ZoneInfo("Europe/Berlin")
+    )
+    circuit = make_circuit(circuit_class, MockHass("off"))
+    defaults = sys.modules["wetsoil_off_test.const"].defaults
+    circuit.config = defaults()
+    circuit.config["start_time"] = "07:00"
+    circuit.config["months"] = [11]
+    circuit.last_attempt = "2026-11-16"
+    previous = dict(circuit.config)
+
+    async def fail_persist():
+        raise RuntimeError("storage failure")
+    circuit._save = fail_persist
+    with pytest.raises(RuntimeError, match="storage failure"):
+        await circuit.update_config({**circuit.config, "start_time":"15:00"})
+    assert circuit.config == previous
+    assert circuit.last_attempt == "2026-11-16"
