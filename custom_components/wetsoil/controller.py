@@ -330,24 +330,51 @@ class Circuit:
         except asyncio.CancelledError:
             pass
 
+    # HA may publish the new switch state shortly after the service returns.
+    OFF_CONFIRM_TIMEOUT = 3.0
+    OFF_POLL_INTERVAL = 0.1
+
+    def _valve_is_off(self, valve):
+        """Read current HA feedback; 'off' is not proof of physical closure."""
+        state = self.hass.states.get(valve)
+        return state is not None and state.state == "off"
+
+    async def _wait_until_off(self, valve):
+        """Allow a bounded interval for a delayed state update."""
+        if self._valve_is_off(valve):
+            return True
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + self.OFF_CONFIRM_TIMEOUT
+        while loop.time() < deadline:
+            await asyncio.sleep(min(self.OFF_POLL_INTERVAL, max(0, deadline - loop.time())))
+            if self._valve_is_off(valve):
+                return True
+        return self._valve_is_off(valve)
+
     async def _off(self):
-        """Bounded retries. Unconfirmed shutdown inhibits new starts."""
+        """Skip already-off valves and retain recovery lock on uncertain state.
+
+        A service failure can still be considered confirmed if the final HA
+        feedback is off; the service result alone is never confirmation.
+        """
         missing = []
         for valve in self.config["valves"]:
+            if self._valve_is_off(valve):
+                continue
             confirmed = False
-            for _ in range(2):
+            for attempt in range(2):
                 try:
                     await asyncio.wait_for(
                         self.hass.services.async_call(
                             "switch", "turn_off", {"entity_id": valve}, blocking=True),
                         timeout=10,
                     )
-                    state = self.hass.states.get(valve)
-                    if state is not None and state.state == "off":
-                        confirmed = True
-                        break
                 except Exception:
-                    _LOGGER.exception("Could not switch off %s", valve)
+                    _LOGGER.exception("WetSoil turn_off attempt %s failed for %s",
+                                      attempt + 1, valve)
+                if await self._wait_until_off(valve):
+                    confirmed = True
+                    break
             if not confirmed:
                 missing.append(valve)
         if missing:
@@ -356,7 +383,14 @@ class Circuit:
             self.status = "error"
             _LOGGER.error("WetSoil safety shutdown unconfirmed: %s", missing)
             return False
+
         self.recovery_required = False
+        if isinstance(self.error, str) and self.error.startswith("shutdown_unconfirmed:"):
+            self.error = None
+            if not self.running:
+                self.status = "idle"
+        elif self.status == "recovering" and not self.running:
+            self.status = "idle"
         return True
 
     async def stop(self, reason="manual_stop", abort=True):
