@@ -203,7 +203,7 @@ class Circuit:
             return
         local = dt_util.as_local(now)
         if local.minute % 5 == 0 and local.second < 30:
-             await self.weather.update(self.config)
+            await self.weather.update(self.config)
             self.changed()
         settings = self.config
         if (settings["start_mode"] == "time"
