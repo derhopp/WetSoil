@@ -89,7 +89,7 @@ async def ws_update(hass, connection, msg):
     try:
         async with hass.data[DOMAIN + "_config_lock"]:
             settings = validate_all(hass, msg["entry_id"], msg["config"])
-             await circuit.update_config(settings)
+            await circuit.update_config(settings)
     except (ValueError, RuntimeError) as err:
         connection.send_error(msg["id"], "invalid_config", str(err))
         return
@@ -123,7 +123,7 @@ async def ws_action(hass, connection, msg):
             async with hass.data[DOMAIN + "_config_lock"]:
                 settings = {**circuit.config, "automatic": command == "enable"}
                 settings = validate_all(hass, msg["entry_id"], settings)
-                 await circuit.update_config(settings)
+                await circuit.update_config(settings)
     except (ValueError, RuntimeError) as err:
         connection.send_error(msg["id"], "action_failed", str(err))
         return

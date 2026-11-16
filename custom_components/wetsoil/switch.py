@@ -19,7 +19,7 @@ class AutomaticSwitch(WetSoilEntity, SwitchEntity):
         return self.circuit.config["automatic"]
 
     async def async_turn_on(self, **kwargs):
-         async with self.hass.data["wetsoil_config_lock"]:
+        async with self.hass.data["wetsoil_config_lock"]:
             config = validate_all(self.hass, self.circuit.entry.entry_id, {
                 **self.circuit.config, "automatic": True
             })
