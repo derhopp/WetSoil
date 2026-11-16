@@ -36,3 +36,34 @@ def test_allowed_month_and_weekday():
 def test_no_match():
     now = datetime(2026, 11, 15, tzinfo=BERLIN)
     assert schedule.next_scheduled(now, "08:00", [], []) is None
+
+def test_future_time_change_rearms_prior_attempt_same_day():
+    old = {"start_mode":"time", "start_time":"07:00",
+           "weekdays":[0,1,2,3,4,5,6], "months":[11]}
+    new = {**old, "start_time":"15:00"}
+    now = datetime(2026, 11, 16, 14, 14, tzinfo=BERLIN)
+    assert schedule.should_rearm_today(old, new, "2026-11-16", now)
+    assert schedule.next_scheduled(now, "15:00", new["weekdays"], new["months"]).date() == date(2026, 11, 16)
+
+
+def test_past_time_or_unrelated_setting_does_not_rearm():
+    old = {"start_mode":"time", "start_time":"07:00",
+           "weekdays":[0,1,2,3,4,5,6], "months":[11]}
+    now = datetime(2026, 11, 16, 14, 14, tzinfo=BERLIN)
+    assert not schedule.should_rearm_today(old, {**old, "start_time":"14:00"}, "2026-11-16", now)
+    assert not schedule.should_rearm_today(old, {**old, "start_time":"07:00"}, "2026-11-16", now)
+    assert not schedule.should_rearm_today(old, {**old, "start_time":"15:00"}, "2026-11-15", now)
+    assert not schedule.should_rearm_today(old, {**old, "start_time":"15:00", "months":[4]}, "2026-11-16", now)
+    assert not schedule.should_rearm_today(old, {**old, "start_time":"15:00", "weekdays":[1]}, "2026-11-16", now)
+    assert not schedule.should_rearm_today(old, {**old, "start_time":"15:00", "start_mode":"chained"}, "2026-11-16", now)
+
+
+def test_exact_time_is_not_rearmed_and_dst_gap_is_excluded():
+    old = {"start_mode":"time", "start_time":"01:00",
+           "weekdays":list(range(7)), "months":list(range(1,13))}
+    now = datetime(2026, 3, 29, 1, 30, tzinfo=BERLIN)
+    assert not schedule.should_rearm_today(old, {**old, "start_time":"02:30"}, "2026-03-29", now)
+    assert not schedule.should_rearm_today(
+        {**old, "start_time":"07:00"}, {**old,"start_time":"15:00"},
+        "2026-11-16", datetime(2026,11,16,15,0,tzinfo=BERLIN)
+    )

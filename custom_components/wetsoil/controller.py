@@ -14,7 +14,7 @@ from homeassistant.util import dt as dt_util
 from .algorithm import calculate
 from .const import DOMAIN, defaults, validate_config
 from .weather import WetSoilWeather
-from .schedule import local_occurrence, next_scheduled
+from .schedule import local_occurrence, next_scheduled, should_rearm_today
 
 _LOGGER = logging.getLogger(__name__)
 EVENT = "wetsoil_updated"
@@ -190,13 +190,21 @@ class Circuit:
         ):
             raise ValueError("stop_before_changing_safety_parameters")
         # Disabling the schedule does not terminate an already running cycle.
-        # The user can explicitly stop that cycle.
+        # Re-arm today's attempt only for an explicit future time change.
+        # Other edits must not trigger a duplicate automatic run.
+        rearm = should_rearm_today(
+            previous, new, self.last_attempt, dt_util.now()
+        )
         async with self.lock:
+            previous_attempt = self.last_attempt
             self.config = new
+            if rearm:
+                self.last_attempt = None
             try:
                 await self._save()
             except Exception:
                 self.config = previous
+                self.last_attempt = previous_attempt
                 raise
         if reset_history:
             self.weather.history.days.clear()
