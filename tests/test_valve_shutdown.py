@@ -643,3 +643,43 @@ async def test_dangling_predecessor_disables_automation_at_setup(circuit_class):
     assert circuit.config["predecessor"] is None
     assert circuit.config["automatic"] is False
     assert hass.calls==[]
+
+
+@pytest.mark.asyncio
+async def test_old_stored_config_adds_missing_new_defaults(circuit_class):
+    hass=MockHass("off")
+    hass.async_create_task=lambda coro:coro.close()
+    circuit=make_circuit(circuit_class,hass)
+    defaults=sys.modules["wetsoil_off_test.const"].defaults
+    legacy=defaults()
+    legacy.pop("precipitation_sensor_kind")
+    legacy["start_time"]="11:45"
+    saved=[]
+    async def save():
+        saved.append((circuit.config.copy(),circuit.last_started_date))
+    circuit.store=SimpleNamespace(
+        async_load=lambda:asyncio.sleep(0,result={
+            "config":legacy, "last_auto_run_date":"2026-11-15",
+        })
+    )
+    circuit._save=save
+    circuit.weather=SimpleNamespace(setup=lambda:asyncio.sleep(0))
+    circuit._listen=lambda:None
+    await circuit.setup()
+    assert circuit.config["precipitation_sensor_kind"]=="total"
+    assert circuit.config["start_time"]=="11:45"
+    assert saved[-1][0]["start_time"]=="11:45"
+
+
+@pytest.mark.asyncio
+async def test_future_storage_schema_is_not_overwritten(circuit_class):
+    hass=MockHass("off")
+    circuit=make_circuit(circuit_class,hass)
+    circuit.store=SimpleNamespace(
+        async_load=lambda:asyncio.sleep(0,result={
+            "schema_version": 100,
+            "config": {"future_key":"must_be_preserved"},
+        })
+    )
+    with pytest.raises(RuntimeError,match="unsupported_future_storage_schema"):
+        await circuit.setup()

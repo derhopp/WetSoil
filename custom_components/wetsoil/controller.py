@@ -74,9 +74,10 @@ class Circuit:
 
     async def setup(self):
         saved = await self.store.async_load() or {}
+        if saved.get("schema_version", 1) > 2:
+            # Never overwrite settings created by a newer WetSoil release.
+            raise RuntimeError("unsupported_future_storage_schema")
         try:
-            if saved.get("schema_version", 1) > 2:
-                raise ValueError("unsupported_future_storage_schema")
             stored = saved.get("config", defaults())
             if not isinstance(stored, dict):
                 raise ValueError("stored_configuration_not_a_mapping")
