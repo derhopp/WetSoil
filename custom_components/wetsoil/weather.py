@@ -1,7 +1,8 @@
 """Actual precipitation observation and safe weather forecast normalization."""
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta, time
+import asyncio
+from datetime import date, datetime, timedelta, time, timezone
 import logging
 import math
 
@@ -70,6 +71,49 @@ def daily_forecast(forecasts, local_date, precipitation_unit, temperature_unit):
             as_mm(row.get("precipitation"), precipitation_unit),
         )
     return None, None
+
+
+
+def hourly_forecast(forecasts, local_date, precipitation_unit, temperature_unit, tz):
+    """Calculate a complete local day's forecast, including DST's 23/25 hours.
+
+    Never treat remaining-day hourly forecasts as complete-day precipitation.
+    """
+    start = datetime.combine(local_date, time.min, tzinfo=tz).astimezone(timezone.utc)
+    end = datetime.combine(local_date + timedelta(days=1), time.min, tzinfo=tz).astimezone(timezone.utc)
+    rows_by_hour = {}
+    for row in forecasts:
+        if not isinstance(row, dict):
+            continue
+        value = row.get("datetime")
+        if not isinstance(value, str):
+            continue
+        try:
+            moment = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError:
+            continue
+        if moment.tzinfo is None:
+            continue
+        utc = moment.astimezone(timezone.utc)
+        if start <= utc < end:
+            if utc in rows_by_hour:
+                return None, None
+            rows_by_hour[utc] = row
+
+    temps, rain = [], []
+    expected = start
+    while expected < end:
+        row = rows_by_hour.get(expected)
+        if row is None:
+            return None, None
+        temp = as_celsius(row.get("temperature"), temperature_unit)
+        mm = as_mm(row.get("precipitation"), precipitation_unit)
+        if temp is None or mm is None:
+            return None, None
+        temps.append(temp)
+        rain.append(mm)
+        expected += timedelta(hours=1)
+    return (max(temps), sum(rain)) if temps else (None, None)
 
 
 class RainfallHistory:
@@ -185,6 +229,12 @@ class WetSoilWeather:
         self.sensor_raining = None
         self.quality = "unavailable"
         self.last_fetch = None
+        self.forecast_entity = None
+        self.forecast_date = None
+        self.forecast_source = None
+        self.forecast_updated = None
+        self.forecast_error = None
+        self._fetch_lock = asyncio.Lock()
         self.history = RainfallHistory(hass, entry_id)
 
     async def setup(self):
@@ -234,48 +284,96 @@ class WetSoilWeather:
         return self.raining
 
     async def update(self, settings, force=False):
-        """Refresh rain, observations and forecasts; never synthesize history."""
-        now = dt_util.now()
-        self.read_rain(settings)
-        sensor_id = settings["precipitation_sensor"]
-        if sensor_id:
-            state = self.hass.states.get(sensor_id)
-            amount = (as_mm(state.state, state.attributes.get("unit_of_measurement"))
-                      if state is not None else None)
-            await self.history.sample(now, amount, settings["precipitation_sensor_kind"])
-        self.rain_3d = (
-            self.history.three_day_mean(now.date())
-            if sensor_id and amount is not None else None
-        )
-        if not settings["weather_entity"]:
-            self.temperature = self.rain_today = None
-            self.quality = "weather_unconfigured"
-            return
-        if (not force and self.last_fetch is not None
-            and (now - self.last_fetch).total_seconds() < 1800):
-            return
-        # Record attempt to throttle failing providers as well.
-        self.last_fetch = now
-        self.temperature = self.rain_today = None
-        entity_id = settings["weather_entity"]
-        state = self.hass.states.get(entity_id)
-        if state is None:
-            self.quality = "weather_unavailable"
-            return
-        try:
-            result = await self.hass.services.async_call(
-                "weather", "get_forecasts",
-                {"entity_id": entity_id, "type": "daily"},
-                blocking=True, return_response=True,
+        """Refresh observations and forecast, immediately when source changes."""
+        async with self._fetch_lock:
+            now = dt_util.now()
+            today = dt_util.as_local(now).date()
+            self.read_rain(settings)
+            sensor_id = settings["precipitation_sensor"]
+            amount = None
+            if sensor_id:
+                state = self.hass.states.get(sensor_id)
+                amount = (as_mm(state.state, state.attributes.get("unit_of_measurement"))
+                          if state is not None else None)
+                await self.history.sample(dt_util.as_local(now), amount,
+                                          settings["precipitation_sensor_kind"])
+            self.rain_3d = (
+                self.history.three_day_mean(today)
+                if sensor_id and amount is not None else None
             )
-            rows = (result or {}).get(entity_id, {}).get("forecast", [])
+            entity_id = settings["weather_entity"]
+            changed = entity_id != self.forecast_entity or today != self.forecast_date
+            if changed:
+                # Never show values from a formerly selected Weather Entity.
+                self.forecast_entity = entity_id
+                self.forecast_date = today
+                self.last_fetch = None
+                self.temperature = self.rain_today = None
+                self.forecast_source = self.forecast_updated = None
+                self.forecast_error = None
+                self.quality = "weather_updating"
+            if not entity_id:
+                self.temperature = self.rain_today = None
+                self.quality = "weather_unconfigured"
+                self.forecast_error = "weather_unconfigured"
+                return
+            if (not force and self.last_fetch is not None
+                    and (now - self.last_fetch).total_seconds() < 1800):
+                self._update_quality()
+                return
+            self.last_fetch = now
+            self.temperature = self.rain_today = None
+            self.forecast_source = self.forecast_updated = None
+            state = self.hass.states.get(entity_id)
+            if state is None or state.state in ("unknown", "unavailable"):
+                self.forecast_error = "weather_unavailable"
+                self._update_quality()
+                return
             temp_unit = state.attributes.get("temperature_unit", "°C")
             rain_unit = state.attributes.get("precipitation_unit", "mm")
-            self.temperature, self.rain_today = daily_forecast(
-                rows, now.date(), rain_unit, temp_unit)
-        except Exception:
-            _LOGGER.exception("WetSoil: daily weather forecast failed for %s", entity_id)
-        self.quality = ("ready" if
-                        self.temperature is not None and self.rain_today is not None
-                        and self.rain_3d is not None and self.raining is not None
-                        else "incomplete")
+            errors = []
+            # Preferred source: a *complete* hourly forecast for the local day.
+            # Most providers omit past hours; then the daily forecast is safer.
+            for kind in ("hourly", "daily"):
+                try:
+                    response = await self.hass.services.async_call(
+                        "weather", "get_forecasts",
+                        {"entity_id": entity_id, "type": kind},
+                        blocking=True, return_response=True,
+                    )
+                    rows = (response or {}).get(entity_id, {}).get("forecast", [])
+                    if not isinstance(rows, list):
+                        rows = []
+                    if kind == "hourly":
+                        temp, precipitation = hourly_forecast(
+                            rows, today, rain_unit, temp_unit,
+                            dt_util.as_local(now).tzinfo,
+                        )
+                    else:
+                        temp, precipitation = daily_forecast(
+                            rows, today, rain_unit, temp_unit)
+                    if temp is not None and precipitation is not None:
+                        self.temperature, self.rain_today = temp, precipitation
+                        self.forecast_source = kind
+                        self.forecast_updated = now.isoformat()
+                        self.forecast_error = None
+                        break
+                    errors.append(kind + "_incomplete")
+                except Exception as exc:
+                    _LOGGER.debug("WetSoil: %s forecast not supported for %s: %s",
+                                  kind, entity_id, exc)
+                    errors.append(kind + "_unavailable")
+            if self.forecast_source is None:
+                self.forecast_error = ",".join(errors) or "forecast_unavailable"
+            self._update_quality()
+
+    def _update_quality(self):
+        """Treat missing forecast, history and rain consent as incomplete."""
+        if self.forecast_entity is None:
+            self.quality = "weather_unconfigured"
+        elif self.temperature is None or self.rain_today is None:
+            self.quality = "forecast_incomplete"
+        elif self.rain_3d is None or self.rain_blocked is not False:
+            self.quality = "incomplete"
+        else:
+            self.quality = "ready"
