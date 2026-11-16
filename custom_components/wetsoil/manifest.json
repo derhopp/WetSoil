@@ -1,6 +1,9 @@
 {
   "domain": "wetsoil",
   "name": "WetSoil",
+  "after_dependencies": [
+    "recorder"
+  ],
   "codeowners": [
     "@derhopp"
   ],
@@ -14,8 +17,5 @@
   "iot_class": "local_push",
   "issue_tracker": "https://github.com/derhopp/WetSoil/issues",
   "requirements": [],
-  "version": "0.1.0",
-  "after_dependencies": [
-    "recorder"
-  ]
+  "version": "0.1.0"
 }
