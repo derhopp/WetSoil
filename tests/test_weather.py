@@ -172,3 +172,83 @@ def test_weather_fallback_when_no_binary_rain_sensor(weather):
         "weather_entity": "weather.station", "rain_sensor": None,
     }) is False
     assert sample.rain_blocked is False
+
+
+@pytest.mark.asyncio
+async def test_provider_switch_immediately_fetches_daily_only_source(weather, monkeypatch):
+    """A recently fetched provider must never block or contaminate a new one."""
+    fixed = datetime(2026, 11, 16, 12, 0, tzinfo=timezone.utc)
+    sys.modules["homeassistant.util.dt"].now = lambda: fixed
+    requests = []
+
+    class State:
+        def __init__(self, value):
+            self.state = value
+            self.attributes = {"temperature_unit": "°C", "precipitation_unit": "mm"}
+
+    class Services:
+        async def async_call(self, domain, service, data, **kwargs):
+            requests.append((data["entity_id"], data["type"]))
+            if data["entity_id"] == "weather.iwolfe67" and data["type"] == "hourly":
+                raise RuntimeError("hourly forecast not supported")
+            if data["type"] == "hourly":
+                return {data["entity_id"]: {"forecast": [
+                    {"datetime":"2026-11-16T12:00:00+00:00",
+                     "temperature":30,"precipitation":3}
+                ]}}
+            t, p = (18, 4) if data["entity_id"] == "weather.home" else (24, 1)
+            return {data["entity_id"]: {"forecast": [
+                {"datetime":"2026-11-16T00:00:00+00:00",
+                 "temperature":t,"precipitation":p}
+            ]}}
+
+    class Hass:
+        services = Services()
+        states = None
+        def __init__(self):
+            self.states = self
+        def get(self, entity):
+            return State("sunny")
+    hass=Hass()
+    data=weather.WetSoilWeather(hass,"provider-test")
+    config={"weather_entity":"weather.home","rain_sensor":None,
+            "precipitation_sensor":None,"precipitation_sensor_kind":"daily"}
+    await data.update(config)
+    assert (data.temperature,data.rain_today,data.forecast_source)==(18,4,"daily")
+    assert data.forecast_entity=="weather.home"
+    config["weather_entity"]="weather.iwolfe67"
+    await data.update(config)  # Same instant: bypass old 30-minute throttle
+    assert (data.temperature,data.rain_today,data.forecast_source)==(24,1,"daily")
+    assert data.forecast_entity=="weather.iwolfe67"
+    assert requests==[
+        ("weather.home","hourly"),("weather.home","daily"),
+        ("weather.iwolfe67","hourly"),("weather.iwolfe67","daily")
+    ]
+
+
+def test_hourly_forecast_requires_complete_day(weather):
+    from zoneinfo import ZoneInfo
+    tz=ZoneInfo("Europe/Berlin")
+    day=datetime(2026,11,16,tzinfo=tz).date()
+    start=datetime(2026,11,15,23,0,tzinfo=timezone.utc)
+    rows=[
+        {"datetime":(start+timedelta(hours=i)).isoformat(),
+         "temperature":15+i/10,"precipitation":0.1}
+        for i in range(24)
+    ]
+    temp,rain=weather.hourly_forecast(rows,day,"mm","°C",tz)
+    assert temp==pytest.approx(17.3)
+    assert rain==pytest.approx(2.4)
+    assert weather.hourly_forecast(rows[1:],day,"mm","°C",tz)==(None,None)
+
+
+def test_hourly_forecast_handles_daylight_saving_changes(weather):
+    from zoneinfo import ZoneInfo
+    tz=ZoneInfo("Europe/Berlin")
+    for target, start, hours in [
+        (datetime(2026,3,29).date(),datetime(2026,3,28,23,tzinfo=timezone.utc),23),
+        (datetime(2026,10,25).date(),datetime(2026,10,24,22,tzinfo=timezone.utc),25),
+    ]:
+        rows=[{"datetime":(start+timedelta(hours=i)).isoformat(),
+               "temperature":20,"precipitation":0.2} for i in range(hours)]
+        assert weather.hourly_forecast(rows,target,"mm","°C",tz)==pytest.approx((20,hours*0.2))
