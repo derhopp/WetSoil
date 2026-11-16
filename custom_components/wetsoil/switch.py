@@ -19,9 +19,7 @@ class AutomaticSwitch(WetSoilEntity, SwitchEntity):
         return self.circuit.config["automatic"]
 
     async def async_turn_on(self, **kwargs):
-        if self.circuit.weather.quality != "ready" or not self.circuit.config["valves"]:
-            raise HomeAssistantError("Complete weather history and valves are required")
-        async with self.hass.data["wetsoil_config_lock"]:
+         async with self.hass.data["wetsoil_config_lock"]:
             config = validate_all(self.hass, self.circuit.entry.entry_id, {
                 **self.circuit.config, "automatic": True
             })

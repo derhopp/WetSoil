@@ -83,6 +83,16 @@ def make_circuit(cls, hass):
     circuit.kind = None
     circuit._task = None
     circuit.lock = asyncio.Lock()
+    circuit._automatic_lock = asyncio.Lock()
+    circuit._closed = False
+    circuit.last_slot = None
+    circuit.last_started_date = None
+    circuit.last_auto_run_date = None
+    circuit.last_run_at = None
+    circuit.last_run_kind = None
+    circuit.last_skip_at = None
+    circuit.last_skip_reason = None
+    circuit.last_attempt = None
     circuit.events = []
     circuit.ended = None
     circuit.ends = None
@@ -261,36 +271,9 @@ async def test_setup_with_externally_active_valve_never_sends_off(circuit_class)
     assert circuit.status == "stopped"
 
 
-@pytest.mark.asyncio
-async def test_config_change_rearms_only_explicit_future_slot(circuit_class):
-    from zoneinfo import ZoneInfo
-    date_now = datetime(2026, 11, 16, 14, 14, tzinfo=ZoneInfo("Europe/Berlin"))
-    sys.modules["homeassistant.util.dt"].now = lambda: date_now
-    circuit = make_circuit(circuit_class, MockHass("off"))
-    defaults = sys.modules["wetsoil_off_test.const"].defaults
-    circuit.config = defaults()
-    circuit.config["start_time"] = "07:00"
-    circuit.config["months"] = [11]
-    circuit.last_attempt = "2026-11-16"
-    saved = []
-
-    async def persist():
-        saved.append((circuit.config["start_time"], circuit.last_attempt))
-    circuit._save = persist
-    circuit._listen = lambda: None
-    circuit.weather = SimpleNamespace(update=lambda cfg: asyncio.sleep(0))
-    await circuit.update_config({**circuit.config, "start_time":"15:00"})
-    assert circuit.config["start_time"] == "15:00"
-    assert circuit.last_attempt is None
-    assert saved[-1] == ("15:00", None)
-    # Mere changes to another parameter must preserve a consumed daily slot.
-    circuit.last_attempt = "2026-11-16"
-    await circuit.update_config({**circuit.config, "base_seconds": 45.0})
-    assert circuit.last_attempt == "2026-11-16"
-
 
 @pytest.mark.asyncio
-async def test_failed_config_save_restores_previous_daily_attempt(circuit_class):
+async def test_change_start_time_preserves_actual_watered_marker(circuit_class):
     from zoneinfo import ZoneInfo
     sys.modules["homeassistant.util.dt"].now = lambda: datetime(
         2026, 11, 16, 14, 14, tzinfo=ZoneInfo("Europe/Berlin")
@@ -300,16 +283,37 @@ async def test_failed_config_save_restores_previous_daily_attempt(circuit_class)
     circuit.config = defaults()
     circuit.config["start_time"] = "07:00"
     circuit.config["months"] = [11]
-    circuit.last_attempt = "2026-11-16"
-    previous = dict(circuit.config)
+    circuit.last_auto_run_date = "2026-11-16"
+    circuit.last_slot = "2026-11-16@07:00"
+    circuit._listen = lambda: None
+    circuit.weather = SimpleNamespace(update=lambda cfg: asyncio.sleep(0))
+    await circuit.update_config({**circuit.config, "start_time": "15:00"})
+    assert circuit.last_auto_run_date == "2026-11-16"
+    assert circuit.last_slot == "2026-11-16@07:00"
+    # A previously skipped 07:00 slot, however, never set auto run date,
+    # hence a newly configured 15:00 slot remains eligible.
+    circuit.last_auto_run_date = None
+    assert circuit.last_auto_run_date is None
+
+
+@pytest.mark.asyncio
+async def test_failed_config_save_keeps_slot_and_watered_marker(circuit_class):
+    circuit = make_circuit(circuit_class, MockHass("off"))
+    defaults = sys.modules["wetsoil_off_test.const"].defaults
+    circuit.config = defaults()
+    circuit.config["start_time"] = "07:00"
+    circuit.last_slot = "2026-11-16@07:00"
+    circuit.last_auto_run_date = "2026-11-16"
+    before = dict(circuit.config)
 
     async def fail_persist():
         raise RuntimeError("storage failure")
     circuit._save = fail_persist
     with pytest.raises(RuntimeError, match="storage failure"):
-        await circuit.update_config({**circuit.config, "start_time":"15:00"})
-    assert circuit.config == previous
-    assert circuit.last_attempt == "2026-11-16"
+        await circuit.update_config({**circuit.config, "start_time": "15:00"})
+    assert circuit.config == before
+    assert circuit.last_slot == "2026-11-16@07:00"
+    assert circuit.last_auto_run_date == "2026-11-16"
 
 
 @pytest.mark.asyncio
@@ -345,3 +349,96 @@ async def test_runtime_snapshot_uses_configured_ha_timezone(circuit_class):
     assert value["schedule_today"]=="today_allowed"
     assert value["schedule_local_now"].startswith("2026-11-16T14:30")
     assert value["schedule_time_zone"]=="Europe/Berlin"
+
+
+@pytest.mark.asyncio
+async def test_disabled_automatic_attempt_does_not_consume_day(circuit_class):
+    from zoneinfo import ZoneInfo
+    dt=sys.modules["homeassistant.util.dt"]
+    dt.utcnow=lambda: datetime(2026,11,16,6,0,tzinfo=timezone.utc)
+    hass=MockHass("off")
+    hass.config=SimpleNamespace(time_zone="Europe/Berlin")
+    circuit=make_circuit(circuit_class,hass)
+    cfg=sys.modules["wetsoil_off_test.const"].defaults()
+    cfg.update({"automatic":False,"weather_entity":"weather.home",
+                "valves":["switch.test_valve"],"months":[11]})
+    circuit.config=cfg
+    circuit.weather=SimpleNamespace(update=lambda cfg: asyncio.sleep(0),
+                                    rain_blocked=False)
+    circuit.planned=lambda: 0
+    circuit.calculation=lambda: SimpleNamespace(reason="missing_history")
+    await circuit.auto_attempt()
+    assert circuit.last_auto_run_date is None
+    assert circuit.last_started_date is None
+    assert circuit.last_skip_reason == "automatic_disabled"
+    assert hass.calls == []
+
+
+@pytest.mark.asyncio
+async def test_skipped_chain_can_attempt_again_after_weather_recovers(circuit_class):
+    dt=sys.modules["homeassistant.util.dt"]
+    dt.utcnow=lambda: datetime(2026,11,16,13,0,tzinfo=timezone.utc)
+    hass=MockHass("off")
+    hass.config=SimpleNamespace(time_zone="Europe/Berlin")
+    circuit=make_circuit(circuit_class,hass)
+    cfg=sys.modules["wetsoil_off_test.const"].defaults()
+    cfg.update({"automatic":True,"start_mode":"chained","predecessor":"parent",
+                "weather_entity":"weather.home","valves":["switch.test_valve"],
+                "months":[11]})
+    circuit.config=cfg
+    circuit.weather=SimpleNamespace(update=lambda cfg: asyncio.sleep(0),
+                                    rain_blocked=False)
+    circuit.planned=lambda: 0
+    circuit.calculation=lambda: SimpleNamespace(reason="missing_history")
+    await circuit.auto_attempt()
+    await circuit.auto_attempt()
+    assert circuit.last_auto_run_date is None
+    assert circuit.last_skip_reason == "missing_history"
+    assert "Duplicate chain trigger blocked" not in circuit.events
+
+
+@pytest.mark.asyncio
+async def test_manual_reset_clears_today_without_operating_actuators(circuit_class):
+    hass=MockHass("off")
+    circuit=make_circuit(circuit_class,hass)
+    circuit.last_started_date="2026-11-16"
+    circuit.last_auto_run_date="2026-11-16"
+    circuit.last_run_at="2026-11-16T07:00:00+00:00"
+    circuit.last_slot="2026-11-16@07:00"
+    await circuit.reset_today_status()
+    assert circuit.last_started_date is None
+    assert circuit.last_auto_run_date is None
+    assert circuit.last_run_at=="2026-11-16T07:00:00+00:00"
+    assert circuit.last_slot=="2026-11-16@07:00"
+    assert hass.calls==[]
+
+
+@pytest.mark.asyncio
+async def test_reset_during_owned_run_rejected(circuit_class):
+    hass=MockHass("on")
+    circuit=make_circuit(circuit_class,hass)
+    circuit.running=True
+    circuit._owned_valves={"switch.test_valve"}
+    with pytest.raises(ValueError,match="stop_before_reset_today"):
+        await circuit.reset_today_status()
+    assert hass.calls == []
+
+
+@pytest.mark.asyncio
+async def test_legacy_saved_attempt_not_treated_as_watered(circuit_class):
+    hass=MockHass("off")
+    hass.async_create_task=lambda coro:coro.close()
+    circuit=make_circuit(circuit_class,hass)
+    defaults=sys.modules["wetsoil_off_test.const"].defaults
+    circuit.store=SimpleNamespace(
+        async_load=lambda:asyncio.sleep(0,result={
+            "config":defaults(), "last_attempt":"2026-11-16",
+            "running":False
+        })
+    )
+    circuit.weather=SimpleNamespace(setup=lambda:asyncio.sleep(0))
+    circuit._listen=lambda:None
+    await circuit.setup()
+    assert circuit.last_auto_run_date is None
+    assert circuit.last_started_date is None
+    assert circuit.last_attempt is None
