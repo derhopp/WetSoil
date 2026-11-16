@@ -536,3 +536,85 @@ async def test_skipped_0700_slot_does_not_block_rescheduled_1600_slot(circuit_cl
     await circuit._tick(later.replace(second=30))
     assert attempts==["07:00","16:00"]
     assert circuit.last_slot=="2026-11-16@16:00"
+
+
+@pytest.mark.asyncio
+async def test_delayed_on_feedback_does_not_abort_timer(circuit_class):
+    """A successful turn_on service response need not immediately publish ON."""
+    from zoneinfo import ZoneInfo
+    dt=sys.modules["homeassistant.util.dt"]
+    dt.utcnow=lambda:datetime(2026,11,16,13,0,tzinfo=timezone.utc)
+    hass=MockHass("off")
+    hass.config=SimpleNamespace(time_zone="Europe/Berlin")
+    scheduled=[]
+    def schedule(coroutine):
+        scheduled.append(coroutine)
+        return SimpleNamespace(cancel=lambda:None)
+    hass.async_create_task=schedule
+    circuit=make_circuit(circuit_class,hass)
+    cfg=sys.modules["wetsoil_off_test.const"].defaults()
+    cfg.update({"weather_entity":"weather.home","valves":["switch.test_valve"]})
+    circuit.config=cfg
+    circuit.weather=SimpleNamespace(update=lambda cfg:asyncio.sleep(0),
+                                    rain_blocked=False)
+    circuit.calculation=lambda:SimpleNamespace(seconds=30)
+    await circuit.start(manual=True)
+    assert circuit.running is True
+    assert circuit.status=="watering"
+    assert circuit.last_run_kind=="manual"
+    assert hass.values["switch.test_valve"]=="off"  # HA feedback still stale
+    assert [x[1] for x in hass.calls]==["turn_on"]
+    assert len(scheduled)==1
+    for coroutine in scheduled:
+        coroutine.close()
+
+
+@pytest.mark.asyncio
+async def test_successful_on_starts_timer_then_off_once(circuit_class,monkeypatch):
+    """Normal completion issues exactly one OFF; no feedback confirmation."""
+    from zoneinfo import ZoneInfo
+    dt=sys.modules["homeassistant.util.dt"]
+    dt.utcnow=lambda:datetime(2026,11,16,13,0,tzinfo=timezone.utc)
+    hass=MockHass("off")
+    hass.config=SimpleNamespace(time_zone="Europe/Berlin")
+    tasks=[]
+    hass.async_create_task=lambda coro:(tasks.append(coro) or None)
+    circuit=make_circuit(circuit_class,hass)
+    cfg=sys.modules["wetsoil_off_test.const"].defaults()
+    cfg.update({"weather_entity":"weather.home","valves":["switch.test_valve"]})
+    circuit.config=cfg
+    circuit.weather=SimpleNamespace(update=lambda cfg:asyncio.sleep(0),
+                                    rain_blocked=False)
+    circuit.calculation=lambda:SimpleNamespace(seconds=30)
+    delay=[]
+    async def simulated_sleep(seconds):
+        delay.append(seconds)
+    monkeypatch.setattr(asyncio,"sleep",simulated_sleep)
+    await circuit.start(manual=True)
+    assert len(tasks)==1
+    await tasks.pop()
+    assert delay==[30]
+    assert [x[1] for x in hass.calls]==["turn_on","turn_off"]
+    assert circuit.running is False
+    assert circuit.status=="idle"
+
+
+@pytest.mark.asyncio
+async def test_failed_turn_on_retains_explicit_stop_but_not_running(circuit_class):
+    hass=MockHass("off")
+    async def fail(h):
+        if h.calls[-1][1]=="turn_on":
+            raise RuntimeError("device call failed")
+    hass.on_call=fail
+    circuit=make_circuit(circuit_class,hass)
+    circuit.weather=SimpleNamespace(update=lambda cfg:asyncio.sleep(0),
+                                    rain_blocked=False)
+    circuit.calculation=lambda:SimpleNamespace(seconds=30)
+    circuit.config={"valves":["switch.test_valve"],"base_seconds":30,
+                    "max_runtime":60}
+    with pytest.raises(RuntimeError,match="start_failed:device call failed"):
+        await circuit.start(manual=True)
+    assert circuit.running is False
+    assert circuit._owned_valves=={"switch.test_valve"}
+    await circuit.stop()
+    assert [x[1] for x in hass.calls]==["turn_on","turn_off"]

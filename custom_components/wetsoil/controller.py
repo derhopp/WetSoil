@@ -346,7 +346,7 @@ class Circuit:
                 except (RuntimeError, ValueError) as exc:
                     self.error = str(exc)
                     self.status = "error"
-                    self._record_skip("start_failed:" + str(exc))
+                    self._record_skip(str(exc))
                     await self._save()
                     self.changed()
                 return
@@ -388,7 +388,7 @@ class Circuit:
         self.changed()
 
     async def start(self, manual=False):
-        """Validate rain, turn on all switches and confirm their HA states."""
+        """Issue ON once, then run the timer without waiting for ON feedback."""
         await self.weather.update(self.config)
         if self.weather.rain_blocked is not False:
             raise RuntimeError("rain_or_unknown")
@@ -423,10 +423,8 @@ class Circuit:
                             "switch", "turn_on", {"entity_id": valve}, blocking=True),
                         timeout=10,
                     )
-                for valve in self.config["valves"]:
-                    state = self.hass.states.get(valve)
-                    if state is None or state.state != "on":
-                        raise RuntimeError("valve_on_unconfirmed:" + valve)
+                # Successful service return is sufficient to start the timer.
+                # Switch state feedback can lag; it is not an ON handshake.
             except Exception as exc:
                 self.error = "start_failed:" + str(exc)
                 self.status = "error"
