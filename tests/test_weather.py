@@ -105,3 +105,70 @@ async def test_counter_reset_marks_day_invalid(weather):
         amount = index / 100 if index < 150 else (index - 150) / 100
         await history.sample(when, amount, "total")
     assert history.days == {}
+
+
+class FakeState:
+    def __init__(self, state):
+        self.state = state
+
+
+class FakeRainHass:
+    def __init__(self, states):
+        self.states = self
+        self.values = {name: FakeState(value) for name, value in states.items()}
+
+    def get(self, entity):
+        return self.values.get(entity)
+
+
+def test_dry_sensor_is_displayed_as_dry_even_if_weather_reports_rain(weather):
+    hass = FakeRainHass({
+        "weather.station": "rainy",
+        "binary_sensor.rain": "off",
+    })
+    sample = weather.WetSoilWeather(hass, "rain-test")
+    config = {"weather_entity": "weather.station",
+              "rain_sensor": "binary_sensor.rain"}
+    assert sample.read_rain(config) is False
+    assert sample.raining is False
+    assert sample.weather_raining is True
+    assert sample.sensor_raining is False
+    assert sample.rain_source_disagreement is True
+    assert sample.rain_blocked is None
+
+
+def test_wet_sensor_without_weather_conflict_blocks_watering(weather):
+    hass = FakeRainHass({
+        "weather.station": "rainy", "binary_sensor.rain": "on",
+    })
+    sample = weather.WetSoilWeather(hass, "wet-test")
+    assert sample.read_rain({
+        "weather_entity": "weather.station", "rain_sensor": "binary_sensor.rain",
+    }) is True
+    assert sample.rain_source_disagreement is False
+    assert sample.rain_blocked is True
+
+
+def test_unknown_rain_sensor_does_not_silently_become_dry(weather):
+    hass = FakeRainHass({
+        "weather.station": "sunny", "binary_sensor.rain": "unavailable",
+    })
+    sample = weather.WetSoilWeather(hass, "unknown-test")
+    assert sample.read_rain({
+        "weather_entity": "weather.station", "rain_sensor": "binary_sensor.rain",
+    }) is None
+    assert sample.rain_blocked is None
+
+
+def test_weather_fallback_when_no_binary_rain_sensor(weather):
+    hass = FakeRainHass({"weather.station": "rainy"})
+    sample = weather.WetSoilWeather(hass, "fallback-test")
+    assert sample.read_rain({
+        "weather_entity": "weather.station", "rain_sensor": None,
+    }) is True
+    assert sample.rain_blocked is True
+    hass.values["weather.station"] = FakeState("sunny")
+    assert sample.read_rain({
+        "weather_entity": "weather.station", "rain_sensor": None,
+    }) is False
+    assert sample.rain_blocked is False
