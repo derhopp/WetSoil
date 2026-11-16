@@ -12,7 +12,7 @@ WetSoil is a weather-dependent multi-circuit irrigation integration with a bundl
 2. Install the integration and restart Home Assistant.
 3. Go to Settings → Devices & services → Add integration → WetSoil.
 4. Enter a name and select an existing Area. Create one entry per circuit.
-5. Under Dashboard → Resources, add JavaScript module /wetsoil/wetsoil-card.js. The JS file is provided by the same integration repository, not a separate card repository.
+5. With UI-managed Lovelace resources, WetSoil registers and cache-versions `/wetsoil/wetsoil-card.js` automatically. For YAML-managed resources, add the JavaScript module `/wetsoil/wetsoil-card.js` manually and reload resources. The bundled JS is not a separate repository.
 6. Add the custom:wetsoil-card from the Dashboard editor and select a circuit in its graphical editor.
 
 Installation is preliminary until tested with a running instance. Refresh the browser after frontend updates.
@@ -48,7 +48,7 @@ Valve commands are best-effort Home Assistant switch service calls. There are **
 ## Known limitations
 
 - No successful end-to-end running Home Assistant / physical valve test.
-- Recorder backfill is conservative and requires sufficiently dense historical measurements. Missing, excluded or sparse Recorder data cannot be recovered. Forecast daily fallback is available; providers without a complete daily forecast still yield unavailable. Automatic Lovelace resource registration is not implemented.
+- Recorder backfill is conservative and requires sufficiently dense historical measurements. Missing, excluded or sparse Recorder data cannot be recovered. Forecast daily fallback is available; providers without a complete daily forecast still yield unavailable. UI-managed Lovelace resource registration and hash-based cache invalidation are supported; YAML resources still require explicit configuration.
 - Some native backend entity labels and diagnostics are still English.
 - Integration-level concurrency, daylight-saving-time and recovery testing remains incomplete.
 - HACS validation requires configuring the repository About description and Topics on GitHub (not files in this repository).
@@ -76,3 +76,12 @@ The scheduler prevents repeated attempts for the **same exact local date and HH:
 The card displays *Started today*, *Automatic run started today*, last real start, and the latest skip reason. Its **Reset today's run status** action clears the daily markers for the selected circuit without operating actuators or immediately triggering watering; the last actual start timestamp remains available as history. Reset is blocked during active or partly started WetSoil runs. A previously saved `last_attempt` from older versions is never treated as proof of irrigation.
 
 Automatic watering can now be enabled while weather/history information is incomplete; the scheduler will skip the upcoming slot, recording its reason, rather than rejecting the configuration. Independent hardware safety remains the user's responsibility.
+
+
+## New native controls, precision and live UI
+
+Additional Home Assistant entities are available for scheduled start time (`time`) and precipitation sensor type (`select`); the existing Number entities and configuration sensor share the same persisted backend configuration as the card. The stored settings have an explicit v2 schema marker while older configuration dictionaries are migrated by filling missing defaults. The custom card listens for `wetsoil_updated` events and displays a running countdown without affecting the backend timer. It cleans up listeners when removed from a dashboard.
+
+**Display/threshold precision:** Forecast and historical precipitation are rounded to 2 decimal places (mm) and temperature to 1 decimal place (°C). The watering algorithm rounds measured values **before** comparison to precipitation and temperature limits, so UI and threshold results agree. These are display/decision precision values; underlying Recorder samples retain their measured precision. A few significant boundary cases may therefore change compared with the previous full-precision comparisons.
+
+The card translates known machine-readable status/error codes into German or English; native Status, Blocking reason and Weather quality sensors also display localized text, while retaining `raw_code` in their attributes for automation use. Unknown codes remain available unmodified for diagnosis.

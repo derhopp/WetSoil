@@ -9,7 +9,7 @@
 1. In HACS das benutzerdefinierte Repository https://github.com/derhopp/WetSoil als **Integration** hinzufügen und WetSoil installieren.
 2. Home Assistant neu starten, danach Einstellungen → Geräte & Dienste → Integration hinzufügen → WetSoil.
 3. Ausschließlich Name und vorhandenen Bereich auswählen. Für jeden Bewässerungskreis eine neue Instanz hinzufügen.
-4. Unter Dashboard → Ressourcen das JavaScript-Modul /wetsoil/wetsoil-card.js registrieren, falls noch nicht vorhanden.
+4. Bei über die Oberfläche verwalteten Dashboard-Ressourcen wird das JavaScript-Modul `/wetsoil/wetsoil-card.js` beim Start automatisch und ohne Duplikate registriert. Bei YAML-verwalteten Ressourcen weiterhin manuell eintragen und die Ressourcen neu laden.
 5. Die Card custom:wetsoil-card über den Editor hinzufügen und die gewünschte WetSoil-Instanz wählen.
 
 Die Card wird zusammen mit der Integration ausgeliefert und benötigt kein zweites Repository. Die zentrale Konfiguration ist unabhängig von der Dashboard-Konfiguration in Home Assistant gespeichert. Schreiboperationen über WebSocket benötigen Administratorrechte.
@@ -42,7 +42,7 @@ Schaltbefehle gehen an Home-Assistant-Switch-Entities, ohne automatische Sicherh
 
 ## Bekannte Einschränkungen
 
-Keine validierten Hardwaretests; Recorder-Backfill nur mit vollständiger Messabdeckung, bei fehlender Tagesprognose keine Schätzung aus unvollständigen Stundenwerten; keine automatisch eingetragene Dashboard-Ressource; einige Entity-Namen im Backend nur auf Englisch; weitere Integrationstests für Parallelität, Zeitumstellungen und Neustarts notwendig.
+Keine validierten Hardwaretests; Recorder-Backfill nur mit vollständiger Messabdeckung, bei fehlender Tagesprognose keine Schätzung aus unvollständigen Stundenwerten; bei YAML-verwalteten Dashboards muss die Ressource manuell gepflegt werden; zusätzliche HA-Spracheinstellungen und einzelne Systemmeldungen benötigen weiterhin Praxisprüfung; weitere Integrationstests für Parallelität, Zeitumstellungen und Neustarts notwendig.
 
 CI-Ergebnisse: https://github.com/derhopp/WetSoil/actions. Entwicklung erfolgt auf main, ohne Releases oder Tags.
 
@@ -67,3 +67,14 @@ Derselbe lokale Termin (Datum + HH:MM) wird höchstens einmal geprüft; eine **w
 Die Card zeigt „Heute tatsächlich gestartet“, „Automatik heute gestartet“, „Letzter tatsächlicher Start“ und den letzten Skipgrund. **Heutigen Laufstatus zurücksetzen** löscht nur die Tagesmarkierungen der ausgewählten Instanz. Es wird kein Ventil geschaltet und keine Bewässerung sofort ausgelöst. Während eines aktiven oder unvollständig gestarteten WetSoil-Laufs ist die Rücksetzung gesperrt. Der letzte tatsächliche Start bleibt als Historie sichtbar. Frühere `last_attempt`-Daten werden bei Updates nicht als Nachweis für einen tatsächlichen Lauf gewertet.
 
 Das Einschalten der Automatik ist künftig auch bei noch unvollständigen Wetter- und Historienwerten möglich; der geplante Zeitpunkt wird dann ohne tatsächlichen Start mit Grund protokolliert. Die eigenständige Aktorsicherung bleibt außerhalb von WetSoil.
+
+
+## Weitere HA-Entities, Zahlenformat und Live-Card
+
+Zusätzlich stehen native Home-Assistant-Entities für die Startuhrzeit (`time`) und die Art der Niederschlagsmessung (`select`) zur Verfügung. Die vorhandenen Number-Entities und der Konfigurationssensor verwenden dieselbe zentrale Datenhaltung wie die Card. Gespeicherte Konfigurationen tragen eine Versionskennung und frühere Stände werden bei fehlenden neueren Parametern ergänzt.
+
+Die Card aktualisiert sich über WetSoil-Ereignisse bei Änderungen anderer Cards sowie während aktiver Läufe mit einem Countdown. Ereignis-Abos werden beim Entfernen der Card abgemeldet.
+
+**Rundung:** Niederschlagswerte werden mit 2 Nachkommastellen und Temperaturen mit 1 Nachkommastelle angezeigt und vor den Grenzwertvergleichen entsprechend gerundet. Recorder-Rohwerte bleiben in ihrer gespeicherten Präzision erhalten. Bei Werten unmittelbar an Grenzwerten kann dies gegenüber der früheren Vollpräzisionsberechnung das Ergebnis ändern.
+
+Die Card übersetzt bekannte technische Status-/Fehlerkennungen ins Deutsche oder Englische. Native Status-/Sperrgrund-/Datenqualität-Sensoren zeigen ebenfalls lesbare Texte; die technische Kennung bleibt als Attribut `raw_code` für Automationen vorhanden.
