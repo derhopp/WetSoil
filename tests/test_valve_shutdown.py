@@ -199,6 +199,7 @@ async def test_rain_event_does_not_interfere_with_active_or_external_actuator(ci
     )
     circuit.config["rain_sensor"] = "binary_sensor.rain"
     circuit.config["precipitation_sensor"] = None
+    circuit.config["weather_entity"] = None
     await circuit._check_state(
         SimpleNamespace(data={"entity_id":"binary_sensor.rain"})
     )
@@ -326,6 +327,7 @@ async def test_runtime_snapshot_uses_configured_ha_timezone(circuit_class):
     circuit.config["months"]=[11]
     circuit.last_attempt=None
     circuit.entry=SimpleNamespace(entry_id="test",title="Test 1",data={"area_id":None})
+    circuit.started = None
     circuit.calculation=lambda: SimpleNamespace(
         seconds=0,reason="incomplete",temp_factor=None,
         rain_today_factor=None,rain_3d_factor=None
