@@ -2,6 +2,7 @@
 const LANG = {
   en: {
     title:"WetSoil",select:"Circuit",status:"Status",auto:"Automatic irrigation",
+    messages:{"not_checked":"Not checked yet","complete":"Complete","recorder_complete":"Recorder data complete","recorder_incomplete":"Recorder data incomplete","recorder_not_loaded":"Recorder not enabled","recorder_entity_excluded":"Sensor excluded from Recorder","recorder_error":"Failed to retrieve Recorder data","intensity_72h_complete":"72-hour precipitation intensity history complete","intensity_72h_incomplete":"72-hour precipitation intensity history incomplete","intensity_sensor_unavailable":"Precipitation intensity sensor unavailable","sensor_not_configured":"No precipitation sensor selected","weather_unconfigured":"No weather entity selected","weather_updating":"Updating weather","weather_unavailable":"Weather entity unavailable","forecast_incomplete":"Forecast incomplete","forecast_unavailable":"Forecast unavailable","hourly_incomplete":"Hourly forecast incomplete","daily_incomplete":"Daily forecast incomplete","hourly_unavailable":"Hourly forecast unavailable","daily_unavailable":"Daily forecast unavailable","incomplete":"Data incomplete","ready":"Data complete","unavailable":"Unavailable","allowed":"Watering permitted","raining":"Currently raining","rain_3d_limit":"Historical precipitation limit reached","rain_today_limit":"Today's precipitation limit reached","temperature_limit":"Temperature threshold reached","invalid_precipitation":"Invalid precipitation value","invalid_parameters":"Invalid calculation parameters","rain_or_unknown":"Rain or unknown rain status","rain_sources_disagree":"Rain sensor and weather entity disagree","automatic_disabled":"Automatic watering disabled","no_valves":"No valves configured","calendar_excluded":"Day or month excluded","already_running":"Watering already running","already_watered_today":"Already watered automatically today","not_eligible":"Start conditions not met","start_failed":"Start failed","stop_command_failed":"Switch-off command failed","valve_not_off":"Valve already on or unavailable","previous_start_requires_explicit_stop":"Explicitly stop previous start","manual":"Manual","auto":"Automatic","idle":"Idle","stopped":"Stopped","starting":"Starting","watering":"Watering in progress","error":"Error","daily":"Daily forecast","hourly":"Hourly forecast"},
     computed:"Weather calculation",planned:"Scheduled duration",remaining:"Remaining",
     start:"Manual start",stop:"Immediate stop",weather:"Weather",settings:"Settings",
     valves:"Valves",schedule:"Schedule",parameters:"Calculation parameters",
@@ -55,6 +56,7 @@ const LANG = {
   },
   de: {
     title:"WetSoil",select:"Bewässerungskreis",status:"Status",auto:"Automatik aktiviert",
+    messages:{"not_checked":"Noch nicht geprüft","complete":"Vollständig","recorder_complete":"Recorder-Daten vollständig","recorder_incomplete":"Recorder-Daten unvollständig","recorder_not_loaded":"Recorder nicht aktiviert","recorder_entity_excluded":"Sensor nicht im Recorder enthalten","recorder_error":"Fehler beim Laden der Recorder-Daten","intensity_72h_complete":"72 Stunden Niederschlagsintensität vollständig ausgewertet","intensity_72h_incomplete":"72 Stunden Niederschlagsintensität unvollständig","intensity_sensor_unavailable":"Niederschlagsintensitätssensor nicht verfügbar","sensor_not_configured":"Kein Niederschlagssensor ausgewählt","weather_unconfigured":"Keine Wetter-Entity ausgewählt","weather_updating":"Wetterdaten werden aktualisiert","weather_unavailable":"Wetter-Entity nicht verfügbar","forecast_incomplete":"Wetterprognose unvollständig","forecast_unavailable":"Keine Wetterprognose verfügbar","hourly_incomplete":"Stundenprognose unvollständig","daily_incomplete":"Tagesprognose unvollständig","hourly_unavailable":"Stundenprognose nicht verfügbar","daily_unavailable":"Tagesprognose nicht verfügbar","incomplete":"Daten unvollständig","ready":"Daten vollständig","unavailable":"Nicht verfügbar","allowed":"Bewässerung freigegeben","raining":"Es regnet","rain_3d_limit":"Historischer Niederschlagsgrenzwert erreicht","rain_today_limit":"Heutiger Niederschlagsgrenzwert erreicht","temperature_limit":"Temperaturgrenze erreicht","invalid_precipitation":"Ungültiger Niederschlagswert","invalid_parameters":"Ungültige Berechnungsparameter","rain_or_unknown":"Regen oder unbekannter Regenstatus","rain_sources_disagree":"Regensensor und Wetter-Entity widersprechen sich","automatic_disabled":"Automatik deaktiviert","no_valves":"Keine Ventile konfiguriert","calendar_excluded":"Tag oder Monat nicht freigegeben","already_running":"Bewässerung läuft bereits","already_watered_today":"Heute bereits automatisch bewässert","not_eligible":"Startbedingungen nicht erfüllt","start_failed":"Start fehlgeschlagen","stop_command_failed":"Ausschaltbefehl fehlgeschlagen","valve_not_off":"Ventil ist bereits eingeschaltet oder nicht erreichbar","previous_start_requires_explicit_stop":"Vorherigen Start bitte ausdrücklich stoppen","manual":"Manuell","auto":"Automatisch","idle":"Bereit","stopped":"Gestoppt","starting":"Startet","watering":"Bewässerung läuft","error":"Fehler","daily":"Tagesprognose","hourly":"Stundenprognose"},
     computed:"Wetterabhängig berechnet",planned:"Tatsächlich geplant",remaining:"Restlaufzeit",
     start:"Manueller Start",stop:"Sofort-Stopp",weather:"Wetter",settings:"Einstellungen",
     valves:"Ventile",schedule:"Zeitplanung",parameters:"Berechnungsparameter",
@@ -162,8 +164,42 @@ class WetSoilCard extends HTMLElement {
     const key = reason.split(":")[0];
     const lang = this._hass?.locale?.language?.startsWith("de") ||
       this._hass?.language?.startsWith("de") ? "de" : "en";
-    return LANG[lang].errors[key] || (reason === "[object Object]" ?
+    return LANG[lang].errors[key] || LANG[lang].messages[key] || (reason === "[object Object]" ?
       LANG[lang].errors.invalid_config : reason.replaceAll("_"," "));
+  }
+  _humanize(value) {
+    if (value === null || value === undefined) return this._t("unavailable");
+    if (typeof value !== "string") return value;
+    const lang = this._hass?.locale?.language?.startsWith("de") ||
+      this._hass?.language?.startsWith("de") ? "de" : "en";
+    const messages = LANG[lang].messages;
+    // Comma-separated forecast diagnostics should each be translated.
+    if (value.includes(",") && value.split(",").every(code=>messages[code])) {
+      return value.split(",").map(code=>messages[code]).join("; ");
+    }
+    const prefix = value.split(":")[0];
+    if (messages[prefix] && value.includes(":")) {
+      return messages[prefix] + ": " + value.slice(prefix.length+1);
+    }
+    return messages[value] || value;
+  }
+  _eventText(event) {
+    if (typeof event !== "string") return String(event ?? "");
+    const translations = this._hass?.locale?.language?.startsWith("de") ||
+      this._hass?.language?.startsWith("de") ? {
+       "Automatic watering skipped: ":"Automatischer Start übersprungen: ",
+       "Watering started: ":"Bewässerung gestartet: ",
+       "WetSoil run stopped: ":"Bewässerung beendet: ",
+       "WetSoil run stopped":"Bewässerung beendet",
+       "Today's watering markers reset by administrator":"Heutiger Laufstatus zurückgesetzt",
+       "Nonexistent local start time: skipped":"Nicht existierende lokale Startzeit übersprungen",
+       "Start failed; actuators may remain on. Use explicit Stop or external controls.":"Start fehlgeschlagen; Aktor eventuell eingeschaltet. Bitte ausdrücklich stoppen oder extern bedienen.",
+       "Interrupted run not resumed; external shutdown is the user's responsibility":"Unterbrochener Lauf nicht fortgesetzt; externe Abschaltung erforderlich",
+       "WetSoil unloaded; actuator state left unchanged. External safety required.":"Integration entladen; Aktor unverändert. Externe Absicherung erforderlich."
+      } : {};
+    const key=Object.keys(translations).find(k=>event.startsWith(k));
+    return key ? translations[key] + (event.slice(key.length).startsWith(": ") ?
+      event.slice(key.length) : this._humanize(event.slice(key.length))) : this._humanize(event);
   }
   _scheduleText(code) {
     const lang = this._hass?.locale?.language?.startsWith("de") ||
@@ -320,23 +356,23 @@ class WetSoilCard extends HTMLElement {
     }
     const metrics=elem("div",null,"metrics");
     for(const [key,value,unit] of [
-      ["status",c.status,""],["computed",c.computed_seconds," s"],
+      ["status",this._humanize(c.status),""],["computed",c.computed_seconds," s"],
       ["planned",c.planned_seconds," s"],["remaining",Math.round(c.remaining_seconds||0)," s"],
       ["temp",c.temperature," °C"],["forecast",c.rain_today," mm"],
       ["measured",c.rain_3d," mm/day"],["raining",c.raining,""],
-      ["quality",c.quality,""],["forecastSource",c.forecast_source,""],
-      ["forecastEntity",c.forecast_entity,""],["historyStatus",c.history_status,""],
+      ["quality",this._humanize(c.quality),""],["forecastSource",this._humanize(c.forecast_source),""],
+      ["forecastEntity",c.forecast_entity,""],["historyStatus",this._humanize(c.history_status),""],
       ["reason",c.rain_source_disagreement
-        ? this._t("rainConflict") : c.reason,""],
+        ? this._t("rainConflict") : this._humanize(c.reason),""],
       ["next",this._formatNextStart(c.next_start),""],
       ["scheduleToday",this._scheduleText(c.schedule_today),""],
       ["localTime",this._formatNextStart(c.schedule_local_now),""],
       ["wateredToday",c.watered_today,""],
       ["automaticWateredToday",c.automatic_watered_today,""],
       ["lastActualRun",this._formatNextStart(c.last_real_start),""],
-      ["lastRunKind",c.last_real_start_kind,""],
+      ["lastRunKind",this._humanize(c.last_real_start_kind),""],
       ["lastSkip",this._formatNextStart(c.last_skip_at),""],
-      ["lastSkipReason",c.last_skip_reason,""]]) {
+      ["lastSkipReason",this._humanize(c.last_skip_reason),""]]) {
         this._metric(metrics,key,value,unit);
       }
     root.append(metrics);
@@ -364,7 +400,7 @@ class WetSoilCard extends HTMLElement {
     root.append(elem("h4",this._t("events")));
     const history=elem("ul");
     for(const event of (c.events||[]).slice(-8).reverse()) {
-      history.append(elem("li",event));
+      history.append(elem("li",this._eventText(event)));
     }
     root.append(history);
     const details=elem("details");

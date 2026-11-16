@@ -114,3 +114,20 @@ test("error details from rejected websocket updates remain readable",async()=>{
   assert.equal(card._error,"Eine Ringverkettung ist nicht erlaubt.");
   assert.equal(card._editing,true);
 });
+
+
+test("human-readable status labels cover precipitation and source diagnoses",()=>{
+  const Card=loadCard(),card=new Card();
+  card._hass={locale:{language:"de-DE"}};
+  assert.equal(card._humanize("intensity_72h_complete"),
+    "72 Stunden Niederschlagsintensität vollständig ausgewertet");
+  assert.equal(card._humanize("recorder_not_loaded"),"Recorder nicht aktiviert");
+  assert.equal(card._humanize("forecast_incomplete"),"Wetterprognose unvollständig");
+  assert.equal(card._humanize("automatic_disabled"),"Automatik deaktiviert");
+  assert.equal(card._humanize(null),"Nicht verfügbar");
+  assert.equal(card._humanize("hourly_incomplete,daily_unavailable"),
+    "Stundenprognose unvollständig; Tagesprognose nicht verfügbar");
+  card._hass={locale:{language:"en-US"}};
+  assert.equal(card._humanize("intensity_72h_complete"),
+    "72-hour precipitation intensity history complete");
+});
