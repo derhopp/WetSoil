@@ -2,6 +2,7 @@
   "domain": "wetsoil",
   "name": "WetSoil",
   "after_dependencies": [
+    "lovelace",
     "recorder"
   ],
   "codeowners": [
