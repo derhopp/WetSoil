@@ -75,84 +75,113 @@ def make_circuit(cls, hass):
     circuit = cls.__new__(cls)
     circuit.hass = hass
     circuit.config = {"valves": ["switch.test_valve"]}
-    circuit.recovery_required = False
+    circuit._owned_valves = set()
     circuit.error = None
     circuit.status = "idle"
     circuit.running = False
-    circuit.OFF_CONFIRM_TIMEOUT = 0.05
-    circuit.OFF_POLL_INTERVAL = 0.005
+    circuit.kind = None
+    circuit._task = None
+    circuit.lock = asyncio.Lock()
+    circuit.events = []
+    circuit.ended = None
+    circuit.ends = None
+    circuit.entry = SimpleNamespace(entry_id="test")
+    circuit._save = lambda: asyncio.sleep(0)
+    circuit.changed = lambda: None
+    circuit._successor = lambda: asyncio.sleep(0)
     return circuit
 
 
+
 @pytest.mark.asyncio
-async def test_off_at_startup_does_not_call_service(circuit_class):
-    hass = MockHass("off")
+async def test_no_off_during_idle_even_if_actuator_is_on(circuit_class):
+    hass = MockHass("on")
     circuit = make_circuit(circuit_class, hass)
-    assert await circuit._off() is True
+    await circuit.stop("manual_stop")
     assert hass.calls == []
-    assert circuit.error is None
-    assert circuit.recovery_required is False
 
 
 @pytest.mark.asyncio
-async def test_delayed_off_state_is_confirmed(circuit_class):
+async def test_off_only_on_explicit_stop_of_owned_run(circuit_class):
     hass = MockHass("on")
-    async def on_call(h):
-        asyncio.get_running_loop().call_later(
-            0.01, lambda: h.values.__setitem__("switch.test_valve", "off")
-        )
-    hass.on_call = on_call
     circuit = make_circuit(circuit_class, hass)
-    assert await circuit._off() is True
+    circuit.running = True
+    circuit.kind = "manual"
+    circuit._owned_valves = {"switch.test_valve"}
+    await circuit.stop("manual_stop")
+    assert hass.calls == [("switch","turn_off","switch.test_valve")]
+
+
+@pytest.mark.asyncio
+async def test_normal_completion_sends_single_off(circuit_class):
+    hass = MockHass("on")
+    circuit = make_circuit(circuit_class, hass)
+    circuit.running = True
+    circuit.kind = "manual"
+    circuit._owned_valves = {"switch.test_valve"}
+    await circuit.stop("complete",abort=False)
     assert len(hass.calls) == 1
-    assert circuit.recovery_required is False
-
-
-@pytest.mark.asyncio
-async def test_unknown_valve_stays_blocked(circuit_class):
-    hass = MockHass(None)
-    circuit = make_circuit(circuit_class, hass)
-    assert await circuit._off() is False
-    assert len(hass.calls) == 2
-    assert circuit.recovery_required is True
-    assert circuit.status == "error"
-    assert circuit.error == "shutdown_unconfirmed:switch.test_valve"
-
-
-@pytest.mark.asyncio
-async def test_stale_shutdown_error_clears_only_after_confirmed_off(circuit_class):
-    hass = MockHass("on")
-    circuit = make_circuit(circuit_class, hass)
-    circuit.recovery_required = True
-    circuit.error = "shutdown_unconfirmed:switch.test_valve"
-    circuit.status = "error"
-    assert await circuit._off() is False
-    assert circuit.error == "shutdown_unconfirmed:switch.test_valve"
-    hass.values["switch.test_valve"] = "off"
-    assert await circuit._off() is True
-    assert circuit.error is None
     assert circuit.status == "idle"
-    assert circuit.recovery_required is False
 
 
 @pytest.mark.asyncio
-async def test_service_error_with_off_feedback_is_success(circuit_class):
+async def test_shutdown_does_not_switch_off_owned_actuators(circuit_class):
     hass = MockHass("on")
-    async def on_call(h):
-        h.values["switch.test_valve"] = "off"
-        raise RuntimeError("service reply lost")
-    hass.on_call = on_call
     circuit = make_circuit(circuit_class, hass)
-    assert await circuit._off() is True
-    assert len(hass.calls) == 1
+    circuit.running = True
+    circuit.kind = "auto"
+    circuit._owned_valves = {"switch.test_valve"}
+    circuit._unsub = []
+    circuit._closed = False
+    await circuit.shutdown()
+    assert hass.calls == []
+    assert circuit.running is False
+    assert circuit._owned_valves == set()
 
 
 @pytest.mark.asyncio
-async def test_unrelated_error_is_not_hidden_by_off_check(circuit_class):
-    hass = MockHass("off")
+async def test_start_must_not_take_over_externally_on_valve(circuit_class):
+    hass = MockHass("on")
     circuit = make_circuit(circuit_class, hass)
-    circuit.error = "rain_or_unknown"
-    circuit.status = "error"
-    assert await circuit._off() is True
-    assert circuit.error == "rain_or_unknown"
-    assert circuit.status == "error"
+    circuit.weather = SimpleNamespace(update=lambda cfg: asyncio.sleep(0), rain_blocked=False)
+    circuit.calculation = lambda: SimpleNamespace(seconds=30)
+    circuit.config = {"valves":["switch.test_valve"],"base_seconds":30,
+                      "max_runtime":60}
+    with pytest.raises(RuntimeError,match="valve_not_off"):
+        await circuit.start(manual=True)
+    assert hass.calls == []
+
+
+@pytest.mark.asyncio
+async def test_off_service_failure_does_not_retry_or_lockout(circuit_class):
+    hass = MockHass("on")
+    async def fail(h):
+        raise RuntimeError("device offline")
+    hass.on_call = fail
+    circuit = make_circuit(circuit_class, hass)
+    circuit.running = True
+    circuit._owned_valves = {"switch.test_valve"}
+    await circuit.stop()
+    assert len(hass.calls) == 1
+    assert circuit.error == "stop_command_failed:switch.test_valve"
+    assert not hasattr(circuit,"recovery_required")
+
+
+@pytest.mark.asyncio
+async def test_start_failure_can_be_followed_by_explicit_stop(circuit_class):
+    hass = MockHass("off")
+    async def fail_first(h):
+        if h.calls[-1][1] == "turn_on":
+            raise RuntimeError("on service failed")
+    hass.on_call = fail_first
+    circuit = make_circuit(circuit_class, hass)
+    circuit.weather = SimpleNamespace(update=lambda cfg: asyncio.sleep(0), rain_blocked=False)
+    circuit.calculation = lambda: SimpleNamespace(seconds=30)
+    circuit.config = {"valves":["switch.test_valve"],"base_seconds":30,
+                      "max_runtime":60}
+    with pytest.raises(RuntimeError,match="start_failed"):
+        await circuit.start(manual=True)
+    assert [item[1] for item in hass.calls] == ["turn_on"]
+    assert circuit._owned_valves == {"switch.test_valve"}
+    await circuit.stop()
+    assert [item[1] for item in hass.calls] == ["turn_on","turn_off"]

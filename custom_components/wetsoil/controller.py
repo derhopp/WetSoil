@@ -175,7 +175,7 @@ class Circuit:
             new["precipitation_sensor"] != previous["precipitation_sensor"]
             or new["precipitation_sensor_kind"] != previous["precipitation_sensor_kind"]
         )
-        if self.running and any(
+        if (self.running or self._owned_valves) and any(
             new[key] != previous[key] for key in new if key != "automatic"
         ):
             raise ValueError("stop_before_changing_safety_parameters")
@@ -284,12 +284,14 @@ class Circuit:
             self._owned_valves.clear()
             try:
                 for valve in self.config["valves"]:
+                    # Track before issuing a potentially timing-out service call:
+                    # explicit Stop must be able to address a partially started run.
+                    self._owned_valves.add(valve)
                     await asyncio.wait_for(
                         self.hass.services.async_call(
                             "switch", "turn_on", {"entity_id": valve}, blocking=True),
                         timeout=10,
                     )
-                    self._owned_valves.add(valve)
                 for valve in self.config["valves"]:
                     state = self.hass.states.get(valve)
                     if state is None or state.state != "on":
