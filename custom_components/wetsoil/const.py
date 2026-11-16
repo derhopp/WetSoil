@@ -62,7 +62,7 @@ def validate_config(data: dict) -> dict:
         raise ValueError("invalid_start_time")
     if c["start_mode"] not in ("time", "chained"):
         raise ValueError("invalid_start_mode")
-    if c["precipitation_sensor_kind"] not in ("total", "daily"):
+    if c["precipitation_sensor_kind"] not in ("total", "daily", "intensity"):
         raise ValueError("invalid_sensor_kind")
     for key in ENTITY_KEYS + ("predecessor",):
         if c[key] is not None and (not isinstance(c[key], str) or not c[key]):

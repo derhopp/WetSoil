@@ -24,7 +24,7 @@ const LANG = {
     weekdayNames:["Mon","Tue","Wed","Thu","Fri","Sat","Sun"],
     monthNames:["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"],
     history:"Actual precipitation",unavailable:"Unavailable",refresh:"Refresh",
-    factor:"Calculation factors",next:"Next start",sensorTotal:"Cumulative total",sensorDaily:"Daily total",
+    factor:"Calculation factors",next:"Next start",sensorTotal:"Cumulative total",sensorDaily:"Daily total",sensorIntensity:"Actual precipitation intensity (mm/h)",
     selectRequired:"Select a WetSoil circuit in the card editor before using this card.",
     invalidSelection:"The selected WetSoil circuit no longer exists. Choose a valid circuit in the card editor.",
     after:"After", rainConflict:"Rain sensor and weather report contradictory conditions.",
@@ -61,7 +61,7 @@ const LANG = {
     weekdayNames:["Mo","Di","Mi","Do","Fr","Sa","So"],
     monthNames:["Jan","Feb","Mär","Apr","Mai","Jun","Jul","Aug","Sep","Okt","Nov","Dez"],
     history:"Tatsächlicher Niederschlag",unavailable:"Nicht verfügbar",refresh:"Aktualisieren",
-    factor:"Berechnungsfaktoren",next:"Nächster Start",sensorTotal:"Kumulativer Zähler",sensorDaily:"Tagessumme",
+    factor:"Berechnungsfaktoren",next:"Nächster Start",sensorTotal:"Kumulativer Zähler",sensorDaily:"Tagessumme",sensorIntensity:"Niederschlagsintensität (mm/h)",
     selectRequired:"Bitte zuerst im Card-Editor einen WetSoil-Bewässerungskreis auswählen.",
     invalidSelection:"Der ausgewählte Bewässerungskreis existiert nicht mehr. Bitte im Card-Editor neu auswählen.",
     after:"Nach", rainConflict:"Regen-Sensor und Wetter-Entity melden widersprüchliche Zustände.",
@@ -323,7 +323,8 @@ class WetSoilCard extends HTMLElement {
     this._field(weather,"rain_sensor",config,"binary_sensor");
     this._field(weather,"precipitation_sensor",config,"sensor");
     this._choice(weather,"precipitation_sensor_kind",[
-      ["total",this._t("sensorTotal")],["daily",this._t("sensorDaily")]],config);
+      ["total",this._t("sensorTotal")],["daily",this._t("sensorDaily")],
+      ["intensity",this._t("sensorIntensity")]],config);
     details.append(weather);
     const valves=elem("details");
     valves.append(elem("summary",this._t("valves")));

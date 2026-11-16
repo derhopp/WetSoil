@@ -263,6 +263,9 @@ class WetSoilWeather:
         self._fetch_lock = asyncio.Lock()
         self.history = RainfallHistory(hass, entry_id)
         self.history_error = "not_checked"
+        self.intensity_last_fetch = None
+        self.intensity_sensor_id = None
+        self.intensity_total_72h = None
 
     async def setup(self):
         await self.history.restore()
@@ -317,31 +320,59 @@ class WetSoilWeather:
             today = dt_util.as_local(now).date()
             self.read_rain(settings)
             sensor_id = settings["precipitation_sensor"]
-            amount = None
-            if sensor_id:
-                state = self.hass.states.get(sensor_id)
-                amount = (as_mm(state.state, state.attributes.get("unit_of_measurement"))
-                          if state is not None else None)
-                await self.history.sample(dt_util.as_local(now), amount,
-                                          settings["precipitation_sensor_kind"])
-            if sensor_id and (
-                self.history.three_day_mean(today) is None
-                and (self.history.last_backfill is None
-                     or (now - self.history.last_backfill).total_seconds() >= 21600)
-            ):
-                self.history.last_backfill = now
-                tz = dt_util.as_local(now).tzinfo
-                await self.history.backfill(
-                    sensor_id, settings["precipitation_sensor_kind"], today, tz
+            kind = settings["precipitation_sensor_kind"]
+            if kind == "intensity":
+                # This mode uses an exact rolling 72h window, not calendar days.
+                # Never treat rates as cumulative precipitation totals.
+                if not sensor_id:
+                    self.intensity_sensor_id = None
+                    self.intensity_total_72h = None
+                    self.intensity_last_fetch = None
+                    self.rain_3d = None
+                    self.history_error = "sensor_not_configured"
+                else:
+                    source_changed = sensor_id != self.intensity_sensor_id
+                    if source_changed:
+                        self.intensity_last_fetch = None
+                        self.intensity_total_72h = None
+                        self.rain_3d = None
+                        self.intensity_sensor_id = sensor_id
+                    if (self.intensity_last_fetch is None
+                            or (now - self.intensity_last_fetch).total_seconds() >= 300):
+                        from .recorder_history import read_intensity_recorder
+                        self.intensity_last_fetch = now
+                        total, status = await read_intensity_recorder(
+                            self.hass, sensor_id, now
+                        )
+                        self.intensity_total_72h = total
+                        self.rain_3d = total / 3 if total is not None else None
+                        self.history_error = status
+            else:
+                self.intensity_last_fetch = None
+                self.intensity_sensor_id = None
+                self.intensity_total_72h = None
+                amount = None
+                if sensor_id:
+                    state = self.hass.states.get(sensor_id)
+                    amount = (as_mm(state.state, state.attributes.get("unit_of_measurement"))
+                              if state is not None else None)
+                    await self.history.sample(dt_util.as_local(now), amount, kind)
+                if sensor_id and (
+                    self.history.three_day_mean(today) is None
+                    and (self.history.last_backfill is None
+                         or (now - self.history.last_backfill).total_seconds() >= 21600)
+                ):
+                    self.history.last_backfill = now
+                    tz = dt_util.as_local(now).tzinfo
+                    await self.history.backfill(sensor_id, kind, today, tz)
+                self.rain_3d = (
+                    self.history.three_day_mean(today)
+                    if sensor_id and amount is not None else None
                 )
-            self.rain_3d = (
-                self.history.three_day_mean(today)
-                if sensor_id and amount is not None else None
-            )
-            self.history_error = (
-                "complete" if self.rain_3d is not None
-                else self.history.recorder_status
-            )
+                self.history_error = (
+                    "complete" if self.rain_3d is not None
+                    else self.history.recorder_status
+                )
             entity_id = settings["weather_entity"]
             changed = entity_id != self.forecast_entity or today != self.forecast_date
             if changed:

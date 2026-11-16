@@ -170,6 +170,7 @@ class Circuit:
                 for day in self.weather.history.days
             },
             "history_status": self.weather.history_error,
+            "intensity_total_72h": self.weather.intensity_total_72h,
             "factors": {"temp": calc.temp_factor,
                         "today": calc.rain_today_factor,
                         "history": calc.rain_3d_factor},
@@ -201,6 +202,11 @@ class Circuit:
             self.weather.history.days.clear()
             self.weather.history.provenance.clear()
             self.weather.history.last_backfill = None
+            self.weather.intensity_last_fetch = None
+            self.weather.intensity_sensor_id = None
+            self.weather.intensity_total_72h = None
+            self.weather.rain_3d = None
+            self.weather.history_error = "not_checked"
             self.weather.history.recorder_status = "not_checked"
             self.weather.history.current = None
             self.weather.history.last_sample = None
