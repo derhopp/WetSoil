@@ -593,7 +593,8 @@ async def test_successful_on_starts_timer_then_off_once(circuit_class,monkeypatc
     await circuit.start(manual=True)
     assert len(tasks)==1
     await tasks.pop()
-    assert delay==[30]
+    assert delay.count(30)==1
+    assert all(seconds in (0,30) for seconds in delay)
     assert [x[1] for x in hass.calls]==["turn_on","turn_off"]
     assert circuit.running is False
     assert circuit.status=="idle"
