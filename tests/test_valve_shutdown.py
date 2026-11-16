@@ -309,3 +309,37 @@ async def test_failed_config_save_restores_previous_daily_attempt(circuit_class)
         await circuit.update_config({**circuit.config, "start_time":"15:00"})
     assert circuit.config == previous
     assert circuit.last_attempt == "2026-11-16"
+
+
+@pytest.mark.asyncio
+async def test_runtime_snapshot_uses_configured_ha_timezone(circuit_class):
+    from zoneinfo import ZoneInfo
+    from types import SimpleNamespace
+    dt=sys.modules["homeassistant.util.dt"]
+    dt.utcnow=lambda: datetime(2026,11,16,13,30,tzinfo=timezone.utc)
+    hass=MockHass("off")
+    hass.config=SimpleNamespace(time_zone="Europe/Berlin")
+    circuit=make_circuit(circuit_class,hass)
+    defaults=sys.modules["wetsoil_off_test.const"].defaults
+    circuit.config=defaults()
+    circuit.config["start_time"]="16:00"
+    circuit.config["months"]=[11]
+    circuit.last_attempt=None
+    circuit.entry=SimpleNamespace(entry_id="test",title="Test 1",data={"area_id":None})
+    circuit.calculation=lambda: SimpleNamespace(
+        seconds=0,reason="incomplete",temp_factor=None,
+        rain_today_factor=None,rain_3d_factor=None
+    )
+    circuit.weather=SimpleNamespace(
+        rain_source_disagreement=False,rain_today=None,rain_3d=None,
+        temperature=None,raining=None,weather_raining=None,
+        sensor_raining=None,quality="incomplete",forecast_source=None,
+        forecast_entity=None,forecast_updated=None,forecast_error=None,
+        history=SimpleNamespace(days={},provenance={}),
+        history_error="not_checked",intensity_total_72h=None
+    )
+    value=circuit.snapshot()
+    assert value["next_start"].startswith("2026-11-16T16:00")
+    assert value["schedule_today"]=="today_allowed"
+    assert value["schedule_local_now"].startswith("2026-11-16T14:30")
+    assert value["schedule_time_zone"]=="Europe/Berlin"

@@ -67,3 +67,56 @@ def test_exact_time_is_not_rearmed_and_dst_gap_is_excluded():
         {**old, "start_time":"07:00"}, {**old,"start_time":"15:00"},
         "2026-11-16", datetime(2026,11,16,15,0,tzinfo=BERLIN)
     )
+
+
+def test_next_start_today_when_monday_and_november_allowed():
+    now = datetime(2026, 11, 16, 14, 30, tzinfo=BERLIN)
+    settings = {"start_mode":"time", "start_time":"16:00",
+                "weekdays":[0,1,2,3,4,5], "months":[11]}
+    assert schedule.today_schedule_reason(now, settings) == "today_allowed"
+    assert schedule.next_scheduled(now,"16:00",settings["weekdays"],settings["months"]) == datetime(
+        2026, 11, 16, 16, 0, tzinfo=BERLIN
+    )
+
+
+def test_schedule_diagnostic_explains_tomorrow_when_monday_excluded():
+    now = datetime(2026, 11, 16, 14, 30, tzinfo=BERLIN)
+    config = {"start_mode":"time", "start_time":"16:00",
+              "weekdays":[1,2,3,4,5,6], "months":[11]}
+    assert schedule.today_schedule_reason(now, config) == "weekday_excluded"
+    assert schedule.next_scheduled(
+        now,"16:00",config["weekdays"],config["months"]
+    ).date() == date(2026,11,17)
+
+
+def test_next_scheduled_does_not_repeat_consumed_day():
+    now = datetime(2026,11,16,14,30,tzinfo=BERLIN)
+    assert schedule.next_scheduled(
+        now,"16:00",[0,1,2,3,4,5,6],[11],last_attempt="2026-11-16"
+    ).date() == date(2026,11,17)
+
+
+def test_configured_home_assistant_timezone_overrides_process_timezone(monkeypatch):
+    from types import SimpleNamespace
+    import sys
+    from datetime import timezone
+    class FakeDt:
+        @staticmethod
+        def utcnow():
+            return datetime(2026,11,16,13,30,tzinfo=timezone.utc)
+        @staticmethod
+        def now():
+            return datetime(2026,11,16,13,30,tzinfo=timezone.utc)
+        @staticmethod
+        def as_local(now):
+            return now
+    from types import ModuleType
+    homeassistant=ModuleType("homeassistant")
+    util=ModuleType("homeassistant.util")
+    util.dt=FakeDt
+    homeassistant.util=util
+    monkeypatch.setitem(sys.modules,"homeassistant",homeassistant)
+    monkeypatch.setitem(sys.modules,"homeassistant.util",util)
+    assert schedule.configured_local_now(
+        SimpleNamespace(config=SimpleNamespace(time_zone="Europe/Berlin"))
+    ) == datetime(2026,11,16,14,30,tzinfo=BERLIN)

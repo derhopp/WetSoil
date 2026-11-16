@@ -252,3 +252,83 @@ def test_hourly_forecast_handles_daylight_saving_changes(weather):
         rows=[{"datetime":(start+timedelta(hours=i)).isoformat(),
                "temperature":20,"precipitation":0.2} for i in range(hours)]
         assert weather.hourly_forecast(rows,target,"mm","°C",tz)==pytest.approx((20,hours*0.2))
+
+
+@pytest.mark.asyncio
+async def test_forecast_unavailable_on_startup_is_retried_after_short_interval(weather):
+    """A failed first request must not suppress weather for half an hour."""
+    clock=[datetime(2026, 11, 16, 7, 0, tzinfo=timezone.utc)]
+    sys.modules["homeassistant.util.dt"].now=lambda: clock[0]
+
+    class State:
+        def __init__(self, value):
+            self.state=value
+            self.attributes={"temperature_unit":"°C","precipitation_unit":"mm"}
+
+    class Hass:
+        def __init__(self):
+            self.current="unavailable"
+            self.states=self
+            self.services=self
+            self.calls=[]
+        def get(self, entity):
+            return State(self.current)
+        async def async_call(self, domain, service, data, **kwargs):
+            self.calls.append((data["entity_id"],data["type"]))
+            if data["type"]=="hourly":
+                return {data["entity_id"]:{"forecast":[]}}
+            return {data["entity_id"]:{"forecast":[
+                {"datetime":"2026-11-16T00:00:00+00:00",
+                 "temperature":18,"precipitation":0.6}
+            ]}}
+    hass=Hass()
+    sample=weather.WetSoilWeather(hass,"startup-retry")
+    settings={"weather_entity":"weather.home","rain_sensor":None,
+              "precipitation_sensor":None,"precipitation_sensor_kind":"total"}
+    await sample.update(settings)
+    assert sample.forecast_error=="weather_unavailable"
+    assert sample.forecast_source is None
+    hass.current="sunny"
+    clock[0]+=timedelta(seconds=30)
+    await sample.update(settings)
+    assert sample.forecast_source is None
+    clock[0]+=timedelta(seconds=31)
+    await sample.update(settings)
+    assert sample.forecast_source=="daily"
+    assert (sample.temperature,sample.rain_today)==(18,0.6)
+
+
+@pytest.mark.asyncio
+async def test_unsupported_forecast_is_retried_not_cached_as_success(weather):
+    clock=[datetime(2026, 11, 16, 7, 0, tzinfo=timezone.utc)]
+    sys.modules["homeassistant.util.dt"].now=lambda: clock[0]
+    class State:
+        state="sunny"
+        attributes={"temperature_unit":"°C","precipitation_unit":"mm"}
+    class Hass:
+        states=None
+        def __init__(self):
+            self.states=self
+            self.services=self
+            self.ready=False
+            self.calls=0
+        def get(self, entity):return State()
+        async def async_call(self, domain, service, data, **kwargs):
+            self.calls+=1
+            rows=[{"datetime":"2026-11-16T00:00:00+00:00",
+                   "temperature":20,"precipitation":2}] if self.ready and data["type"]=="daily" else []
+            return {data["entity_id"]:{"forecast":rows}}
+    hass=Hass()
+    sample=weather.WetSoilWeather(hass,"provider-late")
+    cfg={"weather_entity":"weather.home","rain_sensor":None,
+         "precipitation_sensor":None,"precipitation_sensor_kind":"total"}
+    await sample.update(cfg)
+    assert sample.forecast_source is None
+    hass.ready=True
+    clock[0]+=timedelta(seconds=61)
+    await sample.update(cfg)
+    assert sample.forecast_source=="daily"
+    n=hass.calls
+    clock[0]+=timedelta(seconds=60)
+    await sample.update(cfg)
+    assert hass.calls==n  # successful forecasts stay rate-limited

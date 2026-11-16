@@ -405,8 +405,11 @@ class WetSoilWeather:
                 self.quality = "weather_unconfigured"
                 self.forecast_error = "weather_unconfigured"
                 return
+            # Failed/unavailable startup requests are retried after a short
+            # interval; successful forecasts keep the normal provider limit.
+            cooldown = 1800 if self.forecast_source is not None else 60
             if (not force and self.last_fetch is not None
-                    and (now - self.last_fetch).total_seconds() < 1800):
+                    and (now - self.last_fetch).total_seconds() < cooldown):
                 self._update_quality()
                 return
             self.last_fetch = now

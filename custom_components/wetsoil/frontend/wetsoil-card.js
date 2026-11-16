@@ -24,7 +24,16 @@ const LANG = {
     weekdayNames:["Mon","Tue","Wed","Thu","Fri","Sat","Sun"],
     monthNames:["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"],
     history:"Actual precipitation",unavailable:"Unavailable",refresh:"Refresh",
-    factor:"Calculation factors",next:"Next start",sensorTotal:"Cumulative total",sensorDaily:"Daily total",sensorIntensity:"Actual precipitation intensity (mm/h)",
+    factor:"Calculation factors",next:"Next start",
+    scheduleToday:"Today’s schedule", localTime:"HA local time",
+    scheduleMessages:{
+      chained:"After predecessor",month_excluded:"Current month is excluded",
+      weekday_excluded:"Today’s weekday is excluded",
+      time_nonexistent:"Local time does not exist",
+      time_passed:"Today’s scheduled time has passed",
+      already_attempted:"Today’s start was already attempted",
+      today_allowed:"Start is permitted today"
+    },sensorTotal:"Cumulative total",sensorDaily:"Daily total",sensorIntensity:"Actual precipitation intensity (mm/h)",
     selectRequired:"Select a WetSoil circuit in the card editor before using this card.",
     invalidSelection:"The selected WetSoil circuit no longer exists. Choose a valid circuit in the card editor.",
     after:"After", rainConflict:"Rain sensor and weather report contradictory conditions.",
@@ -61,7 +70,16 @@ const LANG = {
     weekdayNames:["Mo","Di","Mi","Do","Fr","Sa","So"],
     monthNames:["Jan","Feb","Mär","Apr","Mai","Jun","Jul","Aug","Sep","Okt","Nov","Dez"],
     history:"Tatsächlicher Niederschlag",unavailable:"Nicht verfügbar",refresh:"Aktualisieren",
-    factor:"Berechnungsfaktoren",next:"Nächster Start",sensorTotal:"Kumulativer Zähler",sensorDaily:"Tagessumme",sensorIntensity:"Niederschlagsintensität (mm/h)",
+    factor:"Berechnungsfaktoren",next:"Nächster Start",
+    scheduleToday:"Zeitplan heute",localTime:"HA-Ortszeit",
+    scheduleMessages:{
+      chained:"Nach Vorgänger",month_excluded:"Monat nicht freigegeben",
+      weekday_excluded:"Heutiger Wochentag nicht freigegeben",
+      time_nonexistent:"Ortszeit existiert nicht",
+      time_passed:"Heutige Startzeit bereits vergangen",
+      already_attempted:"Heutiger Startversuch bereits erfolgt",
+      today_allowed:"Start heute zulässig"
+    },sensorTotal:"Kumulativer Zähler",sensorDaily:"Tagessumme",sensorIntensity:"Niederschlagsintensität (mm/h)",
     selectRequired:"Bitte zuerst im Card-Editor einen WetSoil-Bewässerungskreis auswählen.",
     invalidSelection:"Der ausgewählte Bewässerungskreis existiert nicht mehr. Bitte im Card-Editor neu auswählen.",
     after:"Nach", rainConflict:"Regen-Sensor und Wetter-Entity melden widersprüchliche Zustände.",
@@ -132,6 +150,11 @@ class WetSoilCard extends HTMLElement {
       this._hass?.language?.startsWith("de") ? "de" : "en";
     return LANG[lang].errors[key] || (reason === "[object Object]" ?
       LANG[lang].errors.invalid_config : reason.replaceAll("_"," "));
+  }
+  _scheduleText(code) {
+    const lang = this._hass?.locale?.language?.startsWith("de") ||
+      this._hass?.language?.startsWith("de") ? "de" : "en";
+    return LANG[lang].scheduleMessages[code] || code || this._t("unavailable");
   }
   _formatNextStart(value) {
     if (typeof value !== "string" || !value) return this._t("unavailable");
@@ -285,7 +308,9 @@ class WetSoilCard extends HTMLElement {
       ["forecastEntity",c.forecast_entity,""],["historyStatus",c.history_status,""],
       ["reason",c.rain_source_disagreement
         ? this._t("rainConflict") : c.reason,""],
-      ["next",this._formatNextStart(c.next_start),""]]) {
+      ["next",this._formatNextStart(c.next_start),""],
+      ["scheduleToday",this._scheduleText(c.schedule_today),""],
+      ["localTime",this._formatNextStart(c.schedule_local_now),""]]) {
         this._metric(metrics,key,value,unit);
       }
     root.append(metrics);

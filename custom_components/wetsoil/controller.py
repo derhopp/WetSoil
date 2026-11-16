@@ -14,7 +14,10 @@ from homeassistant.util import dt as dt_util
 from .algorithm import calculate
 from .const import DOMAIN, defaults, validate_config
 from .weather import WetSoilWeather
-from .schedule import local_occurrence, next_scheduled, should_rearm_today
+from .schedule import (
+    configured_local_now, local_occurrence, next_scheduled,
+    should_rearm_today, today_schedule_reason,
+)
 
 _LOGGER = logging.getLogger(__name__)
 EVENT = "wetsoil_updated"
@@ -70,7 +73,17 @@ class Circuit:
             self.status = "stopped"
         await self._save()
         self._listen()
-        self.hass.async_create_task(self.weather.update(self.config))
+        self.hass.async_create_task(self._refresh_weather())
+
+    async def _refresh_weather(self, force=False):
+        """Refresh diagnostics after startup or provider recovery."""
+        try:
+            await self.weather.update(self.config, force=force)
+        except Exception:
+            _LOGGER.exception("WetSoil weather refresh failed for %s", self.entry.entry_id)
+        finally:
+            if not self._closed:
+                self.changed()
 
     def _listen(self):
         self._unlisten()
@@ -97,11 +110,18 @@ class Circuit:
 
     async def _check_state(self, event):
         self.weather.read_rain(self.config)
-        # External actuator changes and rain transitions must never issue
-        # unsolicited OFF commands. Start eligibility remains independent.
-        if event.data.get("entity_id") == self.config["precipitation_sensor"]:
-            # Sampling also occurs regularly to detect long data gaps.
-            self.hass.async_create_task(self.weather.update(self.config))
+        # Never switch actuators off due to an external state change.
+        entity_id = event.data.get("entity_id")
+        if entity_id == self.config["weather_entity"]:
+            state = event.data.get("new_state")
+            if (state is not None
+                    and state.state not in ("unknown", "unavailable")
+                    and self.weather.forecast_source is None):
+                # A provider coming online after HA restart should not wait
+                # for the previous failed-request cache to expire.
+                await self._refresh_weather(force=True)
+        elif entity_id == self.config["precipitation_sensor"]:
+            self.hass.async_create_task(self._refresh_weather())
 
     def calculation(self):
         w = self.weather
@@ -113,7 +133,7 @@ class Circuit:
         )
 
     def planned(self):
-        now = dt_util.now()
+        now = configured_local_now(self.hass)
         c = self.config
         if not c["automatic"] or not c["valves"]:
             return 0
@@ -124,10 +144,11 @@ class Circuit:
 
     def snapshot(self):
         calc = self.calculation()
-        local = dt_util.now()
+        local = configured_local_now(self.hass)
         next_time = next_scheduled(
             local, self.config["start_time"],
-            self.config["weekdays"], self.config["months"]
+            self.config["weekdays"], self.config["months"],
+            self.last_attempt,
         ) if self.config["start_mode"] == "time" else None
         return {
             "entry_id": self.entry.entry_id,
@@ -150,6 +171,13 @@ class Circuit:
                 next_time.isoformat() if next_time is not None
                 else ("after:" + self.config["predecessor"]
                       if self.config["start_mode"] == "chained" else None)
+            ),
+            "schedule_today": today_schedule_reason(
+                local, self.config, self.last_attempt
+            ),
+            "schedule_local_now": local.isoformat(),
+            "schedule_time_zone": getattr(
+                getattr(self.hass, "config", None), "time_zone", str(local.tzinfo)
             ),
             "started_at": self.started,
             "last_end": self.ended,
@@ -193,7 +221,7 @@ class Circuit:
         # Re-arm today's attempt only for an explicit future time change.
         # Other edits must not trigger a duplicate automatic run.
         rearm = should_rearm_today(
-            previous, new, self.last_attempt, dt_util.now()
+            previous, new, self.last_attempt, configured_local_now(self.hass)
         )
         async with self.lock:
             previous_attempt = self.last_attempt
@@ -227,10 +255,18 @@ class Circuit:
     async def _tick(self, now):
         if self._closed:
             return
-        local = dt_util.as_local(now)
-        if local.minute % 5 == 0 and local.second < 30:
-            await self.weather.update(self.config)
-            self.changed()
+        local = configured_local_now(self.hass, now)
+        standard_refresh = local.minute % 5 == 0 and local.second < 30
+        forecast_retry = (
+            self.config["weather_entity"]
+            and self.weather.forecast_source is None
+            and (
+                self.weather.last_fetch is None
+                or (now - self.weather.last_fetch).total_seconds() >= 60
+            )
+        )
+        if standard_refresh or forecast_retry:
+            await self._refresh_weather()
         settings = self.config
         if (settings["start_mode"] == "time"
             and local_occurrence(local.date(), settings["start_time"], local.tzinfo) is None
@@ -251,7 +287,7 @@ class Circuit:
         if self._closed:
             return
         if self.config["start_mode"] == "chained":
-            today = dt_util.now().date().isoformat()
+            today = configured_local_now(self.hass).date().isoformat()
             if self.last_attempt == today:
                 self.events.append("Duplicate chain trigger blocked")
                 self.changed()
