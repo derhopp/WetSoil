@@ -3,6 +3,7 @@ from homeassistant.core import callback
 from homeassistant.helpers.entity import Entity
 from .const import DOMAIN
 from .controller import EVENT
+from .text_labels import language_for, name_text
 
 
 class WetSoilEntity(Entity):
@@ -11,7 +12,7 @@ class WetSoilEntity(Entity):
     def __init__(self, circuit, key, name):
         self.circuit = circuit
         self._key = key
-        self._attr_name = name
+        self._attr_name = name_text(name, language_for(circuit.hass))
         self._attr_unique_id = f"{circuit.entry.unique_id}_{key}"
         self._attr_device_info = {
             "identifiers": {(DOMAIN, circuit.entry.entry_id)},

@@ -3,6 +3,7 @@ from homeassistant.components.sensor import SensorEntity
 from homeassistant.util import dt as dt_util
 from .schedule import next_scheduled
 from .entity import WetSoilEntity
+from .text_labels import language_for, status_text
 
 DESCRIPTIONS = {
     "status": ("State", None),
@@ -47,11 +48,12 @@ class WetSoilSensor(WetSoilEntity, SensorEntity):
         weather = circuit.weather
         key = self._key
         if key == "status":
-            return circuit.status
+            return status_text(circuit.status, language_for(circuit.hass))
         if key == "reason":
-            return (circuit.error or
-                    ("rain_sources_disagree" if weather.rain_source_disagreement
-                     else circuit.calculation().reason))
+            raw = (circuit.error or
+                   ("rain_sources_disagree" if weather.rain_source_disagreement
+                    else circuit.calculation().reason))
+            return status_text(raw, language_for(circuit.hass))
         if key == "computed_seconds":
             return circuit.calculation().seconds
         if key == "planned_seconds":
@@ -63,6 +65,8 @@ class WetSoilSensor(WetSoilEntity, SensorEntity):
             return max(0, (end - dt_util.utcnow()).total_seconds()) if end else None
         if key in ("temperature", "rain_today", "rain_3d", "quality"):
             value = getattr(weather, key)
+            if key == "quality":
+                return status_text(value, language_for(circuit.hass))
             if isinstance(value, (int, float)) and not isinstance(value, bool):
                 return round(value, 1 if key == "temperature" else 2)
             return value
@@ -108,4 +112,14 @@ class WetSoilSensor(WetSoilEntity, SensorEntity):
             return {"settings": self.circuit.config}
         if self._key == "events":
             return {"history": list(self.circuit.events)}
+        if self._key == "status":
+            return {"raw_code": self.circuit.status}
+        if self._key == "quality":
+            return {"raw_code": self.circuit.weather.quality}
+        if self._key == "reason":
+            return {"raw_code": (
+                self.circuit.error
+                or ("rain_sources_disagree" if self.circuit.weather.rain_source_disagreement
+                    else self.circuit.calculation().reason)
+            )}
         return None
