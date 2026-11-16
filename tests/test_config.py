@@ -34,3 +34,11 @@ def test_reject_nan_and_invalid_chain():
     c["start_mode"] = "chained"
     with pytest.raises(ValueError):
         module.validate_config(c)
+
+
+def test_intensity_config_mode_is_valid():
+    c = module.defaults()
+    c["precipitation_sensor_kind"] = "intensity"
+    c["precipitation_sensor"] = "sensor.actual_precipitation_intensity"
+    result = module.validate_config(c)
+    assert result["precipitation_sensor_kind"] == "intensity"

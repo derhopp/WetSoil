@@ -38,3 +38,8 @@ WetSoil only controls actuators associated with an active, internally started ru
 ## Weather forecast provider switching
 
 Weather caching is scoped to the selected entity and local date, with the cache reset on provider changes. The integration attempts a complete-day hourly forecast first and falls back to a valid daily forecast. Incomplete hourly precipitation is never treated as an entire day's total. Forecast source, last refresh, and error state are included in the runtime snapshot. A stale/unavailable provider yields unavailable values rather than retaining a previous entity's data.
+
+
+## Rolling measured rate (intensity mode)
+
+The third precipitation sensor type is `intensity`. Recorder state changes are integrated as piecewise-constant rates over `[now - 72 h, now]` in UTC elapsed time, regardless of local midnight or DST. The resulting rainfall in mm is divided by 3 to feed the existing average-rainfall factor in mm/day. Recorder's state at the window start is necessary. Explicit unknown/unavailable intervals invalidate the integral. Current sensor value and unit are validated before using the Recorder history. Existing daily/total modes retain their original calendar-day semantics. Neither forecast data nor missing history is counted as actual zero precipitation.

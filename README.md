@@ -59,3 +59,10 @@ GitHub Actions check Python tests, source imports, frontend syntax, hassfest and
 ## Actuator ownership (updated 2026-11-16)
 
 WetSoil **does not perform independent safety shutdown**. The user must provide external hardware/automation protection against stuck valves, power loss, Home Assistant restarts or integration unloads. WetSoil **never switches actuators off while idle**, at integration startup/unload, on rain/state changes, or during recovery. Manual control outside WetSoil remains possible. WetSoil refuses to start its own run if an assigned switch already reports ON. For **its own started run only**, a completed countdown or explicit Stop issues one normal OFF command, without confirmation retries or safety lockouts. Unload cancels WetSoil's timer **without switching actuators off**. A partial start failure may leave an actuator ON; use explicit Stop or independent controls. Do not use unattended without independently verified fail-safe measures.
+
+
+### Measured precipitation intensity (rolling 72 hours)
+
+Under **Precipitation sensor type**, choose **Actual precipitation intensity (mm/h)** for a measured rain-rate entity. Supported units include `mm/h`, `mm/d`, `in/h`, `in/d`, `cm/h` and `cm/d`. WetSoil queries the Home Assistant Recorder for **exactly the previous 72 elapsed hours** and integrates the recorded rate over time (mm/h × hours) to find the rainfall total in mm. The weather algorithm receives one-third of that total as its average rainfall in mm/day. A sample's value is held until the next recorded change, as Recorder stores state changes rather than necessarily periodic samples.
+
+This is separate from `daily` and `total` measurement modes, which continue to use completed local calendar days. Missing initial Recorder state, invalid readings, unavailable sensor, missing Recorder, or missing history yield **unavailable**, not a dry (zero rain) estimate. The card's History source status shows `intensity_72h_complete` when the rate history was usable. Rainfall history is measured data, not weather forecasts. Recorder data can be excluded by your Home Assistant configuration.

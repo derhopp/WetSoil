@@ -50,3 +50,10 @@ CI-Ergebnisse: https://github.com/derhopp/WetSoil/actions. Entwicklung erfolgt a
 ## Aktorsteuerung und externe Absicherung (Änderung vom 16.11.2026)
 
 WetSoil führt **keine eigenständige Sicherheitsabschaltung** aus. Der Anwender muss Abschaltungen bei Fehler, Neustart, Stromausfall und Hängenbleiben eines Ventils außerhalb der Integration absichern. Im Leerlauf sowie bei Start, Entladen, Regen- oder Aktorzustandsänderungen schaltet WetSoil keine Aktoren aus. Externe Bedienung bleibt möglich. Bereits eingeschaltete Aktoren werden bei einem neuen WetSoil-Start nicht übernommen. **Nur für einen von WetSoil gestarteten Bewässerungslauf** sendet die Integration nach Laufzeitende oder ausdrücklichem Stopp einmal den normalen OFF-Befehl, ohne Sicherheits-Retries oder Recovery-Sperren. Beim Entladen wird ein WetSoil-Timer beendet, die Aktoren bleiben unverändert. Ein fehlgeschlagener Teilstart kann bereits aktivierte Aktoren zurücklassen; hier ist ein ausdrücklicher Stopp oder eine externe Abschaltung erforderlich.
+
+
+### Alternative: Niederschlagsintensität (gleitende 72 Stunden)
+
+Unter **Art der Niederschlagsmessung** ist nun **Niederschlagsintensität (mm/h)** als dritte Alternative neben `daily` und `total` auswählbar. Unterstützte Einheiten sind `mm/h`, `mm/d`, `in/h`, `in/d`, `cm/h` und `cm/d`. WetSoil integriert die aus dem Recorder abgefragten Intensitätswerte über **exakt die letzten 72 vergangenen Stunden** (mm/h × Stunden). Die so berechnete Niederschlagsmenge in mm wird durch drei geteilt und als mittlerer Tagesniederschlag (mm/Tag) in der bisherigen Node-RED-Formel verwendet.
+
+Es werden keine lokalen Kalendertage vorausgesetzt; Zeitumstellungen ändern das 72-Stunden-Fenster nicht. Unveränderte Werte gelten bis zum nächsten im Recorder registrierten Zustandswechsel. Fehlt der Startzustand oder tritt ein ungültiger bzw. unbekannter Zustand auf, bleibt die gesamte Berechnung nicht verfügbar statt den fehlenden Regen als 0 zu behandeln. `intensity_72h_complete` zeigt eine verwertbare Recorder-Historie an. Die Modi `daily` und `total` bleiben unverändert.
