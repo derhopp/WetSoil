@@ -442,3 +442,66 @@ async def test_legacy_saved_attempt_not_treated_as_watered(circuit_class):
     assert circuit.last_auto_run_date is None
     assert circuit.last_started_date is None
     assert circuit.last_attempt is None
+
+
+@pytest.mark.asyncio
+async def test_confirmed_auto_start_marks_today_and_blocks_duplicate(circuit_class):
+    from zoneinfo import ZoneInfo
+    dt=sys.modules["homeassistant.util.dt"]
+    dt.utcnow=lambda: datetime(2026,11,16,13,0,tzinfo=timezone.utc)
+    hass=MockHass("off")
+    hass.config=SimpleNamespace(time_zone="Europe/Berlin")
+    hass.async_create_task=lambda task:(task.close() or None)
+    async def set_on(h):
+        if h.calls[-1][1] == "turn_on":
+            h.values["switch.test_valve"]="on"
+    hass.on_call=set_on
+    circuit=make_circuit(circuit_class,hass)
+    cfg=sys.modules["wetsoil_off_test.const"].defaults()
+    cfg.update({"automatic":True,"months":[11],
+                "weather_entity":"weather.home","valves":["switch.test_valve"]})
+    circuit.config=cfg
+    circuit.weather=SimpleNamespace(update=lambda cfg:asyncio.sleep(0),
+                                    rain_blocked=False)
+    circuit.planned=lambda:5
+    captured=[]
+    async def save_state():
+        captured.append((circuit.last_started_date,circuit.last_auto_run_date,
+                         circuit.last_run_at,circuit.last_run_kind))
+    circuit._save=save_state
+    await circuit.auto_attempt()
+    assert circuit.running is True
+    assert circuit.last_started_date == "2026-11-16"
+    assert circuit.last_auto_run_date == "2026-11-16"
+    assert circuit.last_run_kind == "auto"
+    assert circuit.last_run_at is not None
+    assert captured[-1][0:2] == ("2026-11-16","2026-11-16")
+    before=len(hass.calls)
+    await circuit.auto_attempt()
+    assert len(hass.calls) == before
+    assert circuit.last_skip_reason == "already_watered_today"
+
+
+@pytest.mark.asyncio
+async def test_manual_run_is_visible_but_does_not_consume_auto_day(circuit_class):
+    from zoneinfo import ZoneInfo
+    dt=sys.modules["homeassistant.util.dt"]
+    dt.utcnow=lambda: datetime(2026,11,16,13,0,tzinfo=timezone.utc)
+    hass=MockHass("off")
+    hass.config=SimpleNamespace(time_zone="Europe/Berlin")
+    hass.async_create_task=lambda task:(task.close() or None)
+    async def set_on(h):
+        if h.calls[-1][1] == "turn_on":
+            h.values["switch.test_valve"]="on"
+    hass.on_call=set_on
+    circuit=make_circuit(circuit_class,hass)
+    cfg=sys.modules["wetsoil_off_test.const"].defaults()
+    cfg.update({"weather_entity":"weather.home","valves":["switch.test_valve"]})
+    circuit.config=cfg
+    circuit.weather=SimpleNamespace(update=lambda cfg:asyncio.sleep(0),
+                                    rain_blocked=False)
+    circuit.calculation=lambda:SimpleNamespace(seconds=5)
+    await circuit.start(manual=True)
+    assert circuit.last_started_date == "2026-11-16"
+    assert circuit.last_auto_run_date is None
+    assert circuit.last_run_kind == "manual"
