@@ -36,9 +36,9 @@ Die Card zeigt die wetterabhängig berechnete Dauer getrennt von der tatsächlic
 
 ## Bedienung und Sicherheit
 
-Manueller Start ignoriert Automatik-, Wochen- und Monatsfreigaben, niemals jedoch Regensperre, Maximaldauer und Sicherheitszustände. Manuelles Bewässern löst keine Verkettung aus. Ein regulär übersprungener Kreis gibt die automatische Kette weiter, ein Fehlerabbruch oder Sofort-Stopp nicht.
+Manueller Start ignoriert Automatik-, Wochen- und Monatsfreigaben, niemals jedoch Regensperre, Maximaldauer und Sicherheitszustände. Manuelles Bewässern löst keine Verkettung aus. Ein regulär übersprungener Kreis gibt die automatische Kette weiter, ein fehlgeschlagener Lauf oder ausdrücklicher Stopp nicht. Regen- oder fremde Aktorzustandsänderungen beenden laufende Bewässerungen nicht automatisch.
 
-Schaltbefehle gehen an Home-Assistant-Switch-Entities, mit begrenzten Zeitüberschreitungen und Abschaltversuchen. Eine HA-Zustandsrückmeldung garantiert **keine tatsächliche mechanische Ventilstellung**. Unabhängige Hardware-Sicherheitsmaßnahmen sind erforderlich. Unterbrochene Bewässerungen werden nach Neustart nicht automatisch fortgesetzt.
+Schaltbefehle gehen an Home-Assistant-Switch-Entities, ohne automatische Sicherheitsabschaltversuche oder Wiederholungen. Nur ein eigener Lauf wird regulär oder auf ausdrücklichen Stopp beendet. Eine HA-Zustandsrückmeldung garantiert **keine tatsächliche mechanische Ventilstellung**. Unabhängige Hardware-Sicherheitsmaßnahmen sind erforderlich. Nach Neustart werden unterbrochene Bewässerungen nicht fortgesetzt; bereits eingeschaltete Ventile werden dabei nicht ausgeschaltet.
 
 ## Bekannte Einschränkungen
 

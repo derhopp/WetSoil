@@ -2,7 +2,7 @@
 
 WetSoil is a weather-dependent multi-circuit irrigation integration with a bundled custom Lovelace card.
 
-**EXPERIMENTAL — NOT APPROVED FOR UNATTENDED IRRIGATION.** Python tests, Home Assistant module imports and hassfest have passed CI. Real Home Assistant installations, hardware valve control, full chain operation, and browser compatibility have NOT been verified. HACS currently fails metadata validation because this GitHub repository lacks a description and valid topics.
+**EXPERIMENTAL — NOT APPROVED FOR UNATTENDED IRRIGATION.** Python tests, Home Assistant module imports and hassfest have passed CI. Real Home Assistant installations, hardware valve control, full chain operation, and browser compatibility have NOT been verified. HACS metadata validation has passed in recent CI runs.
 
 [Deutsch](docs/README.de.md) | [Architecture](docs/architecture.md)
 
@@ -41,9 +41,9 @@ Below the upper temperature threshold, temperature factor is 1 + (T - lower) / (
 
 ## Safety and operating notes
 
-Manual watering bypasses month, weekday and automatic-enabled restrictions; it does not bypass rain veto, the 3600-second default safety ceiling or occupied valves. Manual starts never trigger chains. Automatically skipped circuits forward their chains; manually stopped or safety-aborted runs do not.
+Manual watering bypasses month, weekday and automatic-enabled restrictions; it does not bypass rain veto, the 3600-second default safety ceiling or occupied valves. Manual starts never trigger chains. Automatically skipped circuits forward their chains; manually stopped runs do not. Weather and external valve-state changes do not interrupt running cycles.
 
-Valve commands are best-effort Home Assistant switch service calls with bounded timeouts and retries, and available entity feedback is checked. A successful service call does **not** prove the valve has physically closed. Use independent hardware safety measures. After restart interrupted watering must not automatically resume.
+Valve commands are best-effort Home Assistant switch service calls. There are **no** automatic shutdown retries, hardware recovery attempts or actuator-state interventions outside WetSoil-owned runs. A successful service call does **not** prove the valve has physically closed. Provide your own external safety system. On restart, interrupted watering is not resumed and actuators are not modified.
 
 ## Known limitations
 
