@@ -276,6 +276,8 @@ class Circuit:
         async with self.lock:
             if self.running:
                 raise RuntimeError("already_running")
+            if self._owned_valves:
+                raise RuntimeError("previous_start_requires_explicit_stop")
             for valve in self.config["valves"]:
                 state = self.hass.states.get(valve)
                 if state is None or state.state != "off":

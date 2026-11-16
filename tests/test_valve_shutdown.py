@@ -186,3 +186,75 @@ async def test_start_failure_can_be_followed_by_explicit_stop(circuit_class):
     assert circuit._owned_valves == {"switch.test_valve"}
     await circuit.stop()
     assert [item[1] for item in hass.calls] == ["turn_on","turn_off"]
+
+
+@pytest.mark.asyncio
+async def test_rain_event_does_not_interfere_with_active_or_external_actuator(circuit_class):
+    hass = MockHass("on")
+    circuit = make_circuit(circuit_class, hass)
+    circuit.running = True
+    circuit._owned_valves = {"switch.test_valve"}
+    circuit.weather = SimpleNamespace(
+        read_rain=lambda cfg: None, rain_blocked=True
+    )
+    circuit.config["rain_sensor"] = "binary_sensor.rain"
+    circuit.config["precipitation_sensor"] = None
+    await circuit._check_state(
+        SimpleNamespace(data={"entity_id":"binary_sensor.rain"})
+    )
+    assert hass.calls == []
+    assert circuit.running is True
+
+
+@pytest.mark.asyncio
+async def test_partial_start_must_be_explicitly_stopped_before_retry(circuit_class):
+    hass = MockHass("off")
+    circuit = make_circuit(circuit_class, hass)
+    circuit._owned_valves = {"switch.test_valve"}
+    circuit.weather = SimpleNamespace(
+        update=lambda cfg: asyncio.sleep(0), rain_blocked=False
+    )
+    circuit.calculation = lambda: SimpleNamespace(seconds=30)
+    circuit.config = {"valves":["switch.test_valve"],"base_seconds":30,"max_runtime":60}
+    with pytest.raises(RuntimeError,match="previous_start_requires_explicit_stop"):
+        await circuit.start(manual=True)
+    assert hass.calls == []
+
+
+@pytest.mark.asyncio
+async def test_setup_with_externally_active_valve_never_sends_off(circuit_class):
+    hass = MockHass("on")
+    hass.async_create_task = lambda task: task.close()
+    circuit = make_circuit(circuit_class, hass)
+    circuit.store = SimpleNamespace(
+        async_load=lambda: asyncio.sleep(0, result={
+            "config": {
+                "automatic": False,
+                "weather_entity": None,
+                "rain_sensor": None,
+                "precipitation_sensor": None,
+                "precipitation_sensor_kind": "total",
+                "valves": ["switch.test_valve"],
+                "base_seconds": 30,
+                "max_rain_today": 2,
+                "max_rain_3d": 2,
+                "min_temp": 23,
+                "max_temp": 35,
+                "max_runtime": 3600,
+                "weekdays": [0, 1, 2, 3, 4, 5],
+                "months": [4, 5, 6, 7, 8, 9, 10],
+                "start_time": "08:00",
+                "start_mode": "time",
+                "predecessor": None,
+            },
+            "running": True,
+        })
+    )
+    circuit.weather = SimpleNamespace(
+        setup=lambda: asyncio.sleep(0), update=lambda cfg: asyncio.sleep(0)
+    )
+    circuit._listen = lambda: None
+    await circuit.setup()
+    assert hass.calls == []
+    assert circuit.running is False
+    assert circuit.status == "stopped"
