@@ -276,7 +276,7 @@ class Circuit:
         async with self.lock:
             if self.running:
                 raise RuntimeError("already_running")
-             for valve in self.config["valves"]:
+            for valve in self.config["valves"]:
                 state = self.hass.states.get(valve)
                 if state is None or state.state != "off":
                     raise RuntimeError("valve_not_off:" + valve)
