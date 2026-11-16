@@ -26,12 +26,19 @@ const LANG = {
     history:"Actual precipitation",unavailable:"Unavailable",refresh:"Refresh",
     factor:"Calculation factors",next:"Next start",
     scheduleToday:"Today’s schedule", localTime:"HA local time",
+    wateredToday:"Started today",automaticWateredToday:"Automatic run started today",
+    lastActualRun:"Last actual start",lastRunKind:"Last start type",
+    lastSkip:"Last skipped attempt",lastSkipReason:"Last skip reason",
+    resetToday:"Reset today’s run status",
+    confirmReset:"Reset today's run markers? This does not switch actuators.",
+    yes:"Yes",no:"No",
     scheduleMessages:{
       chained:"After predecessor",month_excluded:"Current month is excluded",
       weekday_excluded:"Today’s weekday is excluded",
       time_nonexistent:"Local time does not exist",
       time_passed:"Today’s scheduled time has passed",
       already_attempted:"Today’s start was already attempted",
+      already_watered_today:"An automatic run already started today",
       today_allowed:"Start is permitted today"
     },sensorTotal:"Cumulative total",sensorDaily:"Daily total",sensorIntensity:"Actual precipitation intensity (mm/h)",
     selectRequired:"Select a WetSoil circuit in the card editor before using this card.",
@@ -72,12 +79,19 @@ const LANG = {
     history:"Tatsächlicher Niederschlag",unavailable:"Nicht verfügbar",refresh:"Aktualisieren",
     factor:"Berechnungsfaktoren",next:"Nächster Start",
     scheduleToday:"Zeitplan heute",localTime:"HA-Ortszeit",
+    wateredToday:"Heute tatsächlich gestartet",automaticWateredToday:"Automatik heute gestartet",
+    lastActualRun:"Letzter tatsächlicher Start",lastRunKind:"Art des letzten Starts",
+    lastSkip:"Letzter übersprungener Versuch",lastSkipReason:"Grund für Überspringen",
+    resetToday:"Heutigen Laufstatus zurücksetzen",
+    confirmReset:"Heutige Laufmarkierungen zurücksetzen? Die Aktoren werden nicht geschaltet.",
+    yes:"Ja",no:"Nein",
     scheduleMessages:{
       chained:"Nach Vorgänger",month_excluded:"Monat nicht freigegeben",
       weekday_excluded:"Heutiger Wochentag nicht freigegeben",
       time_nonexistent:"Ortszeit existiert nicht",
       time_passed:"Heutige Startzeit bereits vergangen",
       already_attempted:"Heutiger Startversuch bereits erfolgt",
+      already_watered_today:"Automatische Bewässerung heute bereits gestartet",
       today_allowed:"Start heute zulässig"
     },sensorTotal:"Kumulativer Zähler",sensorDaily:"Tagessumme",sensorIntensity:"Niederschlagsintensität (mm/h)",
     selectRequired:"Bitte zuerst im Card-Editor einen WetSoil-Bewässerungskreis auswählen.",
@@ -310,7 +324,13 @@ class WetSoilCard extends HTMLElement {
         ? this._t("rainConflict") : c.reason,""],
       ["next",this._formatNextStart(c.next_start),""],
       ["scheduleToday",this._scheduleText(c.schedule_today),""],
-      ["localTime",this._formatNextStart(c.schedule_local_now),""]]) {
+      ["localTime",this._formatNextStart(c.schedule_local_now),""],
+      ["wateredToday",c.watered_today,""],
+      ["automaticWateredToday",c.automatic_watered_today,""],
+      ["lastActualRun",this._formatNextStart(c.last_real_start),""],
+      ["lastRunKind",c.last_real_start_kind,""],
+      ["lastSkip",this._formatNextStart(c.last_skip_at),""],
+      ["lastSkipReason",c.last_skip_reason,""]]) {
         this._metric(metrics,key,value,unit);
       }
     root.append(metrics);
@@ -327,7 +347,13 @@ class WetSoilCard extends HTMLElement {
     start.onclick=()=>this._send("action",{action:"start"});
     const stop=elem("button",this._t("stop"),"danger");
     stop.onclick=()=>this._send("action",{action:"stop"});
-    actions.append(start,stop);root.append(actions);
+    const reset=elem("button",this._t("resetToday"));
+    reset.onclick=()=>{
+      if (window.confirm && !window.confirm(this._t("confirmReset"))) return;
+      this._send("action",{action:"reset_today"});
+    };
+    reset.disabled=!!c.running;
+    actions.append(start,stop,reset);root.append(actions);
     if(this._notice)root.append(elem("p",this._notice));
     root.append(elem("h4",this._t("events")));
     const history=elem("ul");

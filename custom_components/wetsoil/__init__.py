@@ -105,7 +105,7 @@ async def ws_update(hass, connection, msg):
 @websocket_api.websocket_command({
     vol.Required("type"): "wetsoil/action",
     vol.Required("entry_id"): str,
-    vol.Required("action"): vol.In(("start", "stop", "enable", "disable")),
+    vol.Required("action"): vol.In(("start", "stop", "enable", "disable", "reset_today")),
 })
 @websocket_api.async_response
 async def ws_action(hass, connection, msg):
@@ -123,6 +123,8 @@ async def ws_action(hass, connection, msg):
             await circuit.start(manual=True)
         elif command == "stop":
             await circuit.stop("manual_stop", abort=True)
+        elif command == "reset_today":
+            await circuit.reset_today_status()
         else:
             async with hass.data[DOMAIN + "_config_lock"]:
                 settings = {**circuit.config, "automatic": command == "enable"}

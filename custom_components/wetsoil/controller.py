@@ -16,7 +16,7 @@ from .const import DOMAIN, defaults, validate_config
 from .weather import WetSoilWeather
 from .schedule import (
     configured_local_now, local_occurrence, next_scheduled,
-    should_rearm_today, today_schedule_reason,
+    today_schedule_reason,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -40,7 +40,15 @@ class Circuit:
         self.started = None
         self.ended = None
         self.ends = None
-        self.last_attempt = None
+        self.last_attempt = None  # Legacy diagnostic, never used as completion.
+        self.last_slot = None
+        self.last_started_date = None
+        self.last_auto_run_date = None
+        self.last_run_at = None
+        self.last_run_kind = None
+        self.last_skip_at = None
+        self.last_skip_reason = None
+        self._automatic_lock = asyncio.Lock()
         self._owned_valves = set()
         self.events = deque(maxlen=30)
         self._task = None
@@ -54,7 +62,13 @@ class Circuit:
         await self.store.async_save({
             "config": self.config,
             "running": self.running,
-            "last_attempt": self.last_attempt,
+            "last_slot": self.last_slot,
+            "last_started_date": self.last_started_date,
+            "last_auto_run_date": self.last_auto_run_date,
+            "last_run_at": self.last_run_at,
+            "last_run_kind": self.last_run_kind,
+            "last_skip_at": self.last_skip_at,
+            "last_skip_reason": self.last_skip_reason,
         })
 
     async def setup(self):
@@ -64,7 +78,16 @@ class Circuit:
         except ValueError:
             _LOGGER.exception("WetSoil invalid stored config")
             self.config = defaults()
-        self.last_attempt = saved.get("last_attempt")
+        # Prior versions stored even SKIPPED attempts as last_attempt.
+        # They must never be migrated into proof of an actual watering run.
+        self.last_attempt = None
+        self.last_slot = saved.get("last_slot")
+        self.last_started_date = saved.get("last_started_date")
+        self.last_auto_run_date = saved.get("last_auto_run_date")
+        self.last_run_at = saved.get("last_run_at")
+        self.last_run_kind = saved.get("last_run_kind")
+        self.last_skip_at = saved.get("last_skip_at")
+        self.last_skip_reason = saved.get("last_skip_reason")
         await self.weather.setup()
         # Do not touch actuators after restart, including an interrupted run.
         # The owner must provide independent fail-safe hardware/automation.
@@ -148,7 +171,7 @@ class Circuit:
         next_time = next_scheduled(
             local, self.config["start_time"],
             self.config["weekdays"], self.config["months"],
-            self.last_attempt,
+            self.last_auto_run_date,
         ) if self.config["start_mode"] == "time" else None
         return {
             "entry_id": self.entry.entry_id,
@@ -173,8 +196,16 @@ class Circuit:
                       if self.config["start_mode"] == "chained" else None)
             ),
             "schedule_today": today_schedule_reason(
-                local, self.config, self.last_attempt
+                local, self.config, self.last_auto_run_date
             ),
+            "watered_today": self.last_started_date == local.date().isoformat(),
+            "automatic_watered_today": (
+                self.last_auto_run_date == local.date().isoformat()
+            ),
+            "last_real_start": self.last_run_at,
+            "last_real_start_kind": self.last_run_kind,
+            "last_skip_at": self.last_skip_at,
+            "last_skip_reason": self.last_skip_reason,
             "schedule_local_now": local.isoformat(),
             "schedule_time_zone": getattr(
                 getattr(self.hass, "config", None), "time_zone", str(local.tzinfo)
@@ -217,22 +248,16 @@ class Circuit:
             new[key] != previous[key] for key in new if key != "automatic"
         ):
             raise ValueError("stop_before_changing_safety_parameters")
-        # Disabling the schedule does not terminate an already running cycle.
-        # Re-arm today's attempt only for an explicit future time change.
-        # Other edits must not trigger a duplicate automatic run.
-        rearm = should_rearm_today(
-            previous, new, self.last_attempt, configured_local_now(self.hass)
-        )
+        # A changed future HH:MM produces a new unique time slot. Earlier
+        # skipped slots never consume the day's actual-run allowance.
+        # A completed automatic start still requires explicit status reset
+        # before a second automatic run on the same local date.
         async with self.lock:
-            previous_attempt = self.last_attempt
             self.config = new
-            if rearm:
-                self.last_attempt = None
             try:
                 await self._save()
             except Exception:
                 self.config = previous
-                self.last_attempt = previous_attempt
                 raise
         if reset_history:
             self.weather.history.days.clear()
@@ -268,50 +293,79 @@ class Circuit:
         if standard_refresh or forecast_retry:
             await self._refresh_weather()
         settings = self.config
-        if (settings["start_mode"] == "time"
-            and local_occurrence(local.date(), settings["start_time"], local.tzinfo) is None
-            and self.last_attempt != local.date().isoformat()):
-            self.last_attempt = local.date().isoformat()
-            self.events.append("Nonexistent local start time: safely skipped")
-            await self._save()
-            self.changed()
-        if (settings["start_mode"] == "time"
-            and local.strftime("%H:%M") == settings["start_time"]
-            and self.last_attempt != local.date().isoformat()):
-            self.last_attempt = local.date().isoformat()
+        if settings["start_mode"] != "time":
+            return
+        if local.weekday() not in settings["weekdays"] or local.month not in settings["months"]:
+            return
+        slot = local.date().isoformat() + "@" + settings["start_time"]
+        occurrence = local_occurrence(
+            local.date(), settings["start_time"], local.tzinfo
+        )
+        if occurrence is None:
+            if self.last_slot != slot:
+                self.last_slot = slot
+                self.events.append("Nonexistent local start time: skipped")
+                await self._save()
+                self.changed()
+            return
+        if local.strftime("%H:%M") == settings["start_time"] and self.last_slot != slot:
+            # Avoid retry storms during the same minute, without ever turning
+            # skipped attempts into a completed watering marker.
+            self.last_slot = slot
             await self._save()
             await self.auto_attempt()
 
+    def _record_skip(self, reason):
+        self.last_skip_at = dt_util.utcnow().isoformat()
+        self.last_skip_reason = str(reason)
+        self.events.append("Automatic watering skipped: " + str(reason))
+
     async def auto_attempt(self):
-        """A skipped circuit forwards to its single successor."""
+        """Only an actual confirmed automatic start consumes today's run."""
         if self._closed:
             return
-        if self.config["start_mode"] == "chained":
-            today = configured_local_now(self.hass).date().isoformat()
-            if self.last_attempt == today:
-                self.events.append("Duplicate chain trigger blocked")
+        async with self._automatic_lock:
+            local_day = configured_local_now(self.hass).date().isoformat()
+            if self.last_auto_run_date == local_day:
+                self._record_skip("already_watered_today")
+                await self._save()
                 self.changed()
                 return
-            self.last_attempt = today
-            await self._save()
-        if self.running:
-            self.events.append("Automatic attempt skipped: already running")
-            self.changed()
-            return
-        await self.weather.update(self.config)
-        seconds = self.planned()
-        if seconds is not None and seconds > 0:
-            try:
-                await self.start(manual=False)
-            except (RuntimeError, ValueError) as exc:
-                self.error = str(exc)
-                self.status = "error"
-                self.events.append("Automatic start failed: " + str(exc))
+
+            if self.running or self._owned_valves:
+                self._record_skip("already_running")
+                await self._save()
                 self.changed()
-            return
-        self.events.append("Automatic watering skipped")
-        self.changed()
-        await self._successor()
+                return
+
+            await self.weather.update(self.config)
+            seconds = self.planned()
+            if seconds is not None and seconds > 0:
+                try:
+                    await self.start(manual=False)
+                except (RuntimeError, ValueError) as exc:
+                    self.error = str(exc)
+                    self.status = "error"
+                    self._record_skip("start_failed:" + str(exc))
+                    await self._save()
+                    self.changed()
+                return
+
+            if not self.config["automatic"]:
+                reason = "automatic_disabled"
+            elif not self.config["valves"]:
+                reason = "no_valves"
+            elif (configured_local_now(self.hass).weekday() not in self.config["weekdays"]
+                  or configured_local_now(self.hass).month not in self.config["months"]):
+                reason = "calendar_excluded"
+            else:
+                reason = self.calculation().reason or "not_eligible"
+            self._record_skip(reason)
+            await self._save()
+            self.changed()
+            # Preserve prior chain semantics: skipped circles forward their
+            # chain, but the next valid trigger can try them again.
+            await self._successor()
 
     async def _successor(self):
         for circuit in self.hass.data.get(DOMAIN, {}).values():
@@ -319,6 +373,19 @@ class Circuit:
                 and circuit.config["predecessor"] == self.entry.entry_id):
                 await circuit.auto_attempt()
                 break
+
+    async def reset_today_status(self):
+        """Admin-only explicit reset; never touches switches or schedules now."""
+        async with self.lock:
+            if self.running or self._owned_valves:
+                raise ValueError("stop_before_reset_today")
+            self.last_started_date = None
+            self.last_auto_run_date = None
+            # Retain last_run_at, last_skip and slot for diagnostics. A reset
+            # cannot cause a repeat trigger within the current HH:MM minute.
+            self.events.append("Today's watering markers reset by administrator")
+            await self._save()
+        self.changed()
 
     async def start(self, manual=False):
         """Validate rain, turn on all switches and confirm their HA states."""
@@ -372,6 +439,12 @@ class Circuit:
             self.running = True
             self.kind = "manual" if manual else "auto"
             self.started = now.isoformat()
+            self.last_run_at = self.started
+            self.last_run_kind = self.kind
+            local_day = configured_local_now(self.hass).date().isoformat()
+            self.last_started_date = local_day
+            if not manual:
+                self.last_auto_run_date = local_day
             self.ends = (now + timedelta(seconds=seconds)).isoformat()
             self.status = "watering"
             self.error = None

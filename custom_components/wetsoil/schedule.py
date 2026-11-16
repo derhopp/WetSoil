@@ -45,7 +45,7 @@ def today_schedule_reason(now, settings, last_attempt=None):
             <= now.astimezone(timezone.utc)):
         return "time_passed"
     if last_attempt == now.date().isoformat():
-        return "already_attempted"
+        return "already_watered_today"
     return "today_allowed"
 
 
