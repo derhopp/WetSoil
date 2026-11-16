@@ -148,7 +148,7 @@ test("live event subscription updates only its assigned circuit and unsubscribes
   card._render=()=>{};
   card.hass={connection,language:"en"};
   card.connectedCallback();
-  await Promise.resolve();
+  await new Promise(resolve=>setImmediate(resolve));
   assert.equal(subscribed,1);
   handler({data:{entry_id:"test-1"}});
   assert.equal(refreshes,1); // initial hass setter only
