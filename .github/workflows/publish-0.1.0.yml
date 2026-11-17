@@ -1,0 +1,61 @@
+name: Publish WetSoil 0.1.0
+
+on:
+  workflow_run:
+    workflows: ["WetSoil checks"]
+    types: [completed]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: wetsoil-release-0.1.0
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: ${{ github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' && github.event.workflow_run.head_branch == 'main' && github.event.workflow_run.head_repository.full_name == github.repository }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          persist-credentials: false
+      - name: Validate the tested version and main revision
+        id: verify
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TESTED_SHA: ${{ github.event.workflow_run.head_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$TESTED_SHA"
+          test "$(python -c 'import json; print(json.load(open("custom_components/wetsoil/manifest.json"))["version"])')" = "0.1.0"
+          test -s RELEASE_NOTES_0.1.0.md
+          MAIN_SHA="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq .object.sha)"
+          if [ "$MAIN_SHA" != "$TESTED_SHA" ]; then
+            echo "main advanced after the checked commit; leaving release to the next successful run."
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if gh release view "0.1.0" >/dev/null 2>&1; then
+            echo "Release 0.1.0 already exists."
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/0.1.0" >/dev/null 2>&1; then
+            echo "::error::Tag 0.1.0 already exists without a matching release. Refusing to overwrite it."
+            exit 1
+          fi
+          echo "publish=true" >> "$GITHUB_OUTPUT"
+      - name: Create tagged release 0.1.0
+        if: steps.verify.outputs.publish == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TESTED_SHA: ${{ github.event.workflow_run.head_sha }}
+        shell: bash
+        run: |
+          gh release create "0.1.0" \
+            --target "$TESTED_SHA" \
+            --title "WetSoil 0.1.0 — Experimental" \
+            --notes-file RELEASE_NOTES_0.1.0.md
