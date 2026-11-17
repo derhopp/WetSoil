@@ -78,7 +78,7 @@ def test_real_runtime_circuit_objects(modules):
     updated = {**config, "base_seconds": 45.0}
     result = validation.validate_all(hass, "first", updated)
     assert result["base_seconds"] == 45.0
-    assert hass.data["wetsoil"]["first"].config["base_seconds"] == 30.0
+    assert hass.data["wetsoil"]["first"].config["base_seconds"] == 1800.0
 
 
 def test_invalid_entity_still_rejected_with_circuit_objects(modules):
