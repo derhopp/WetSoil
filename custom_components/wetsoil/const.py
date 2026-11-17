@@ -15,7 +15,7 @@ DEFAULTS = {
     "precipitation_sensor": None,
     "precipitation_sensor_kind": "total",
     "valves": [],
-    "base_seconds": 30.0,
+    "base_seconds": 1800.0,
     "max_rain_today": 2.0,
     "max_rain_3d": 2.0,
     "min_temp": 23.0,

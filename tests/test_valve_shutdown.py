@@ -654,6 +654,7 @@ async def test_old_stored_config_adds_missing_new_defaults(circuit_class):
     legacy=defaults()
     legacy.pop("precipitation_sensor_kind")
     legacy["start_time"]="11:45"
+    legacy["base_seconds"]=30.0  # Previously persisted user setting stays intact.
     saved=[]
     async def save():
         saved.append((circuit.config.copy(),circuit.last_started_date))
@@ -668,6 +669,7 @@ async def test_old_stored_config_adds_missing_new_defaults(circuit_class):
     await circuit.setup()
     assert circuit.config["precipitation_sensor_kind"]=="total"
     assert circuit.config["start_time"]=="11:45"
+    assert circuit.config["base_seconds"]==30.0
     assert saved[-1][0]["start_time"]=="11:45"
 
 
