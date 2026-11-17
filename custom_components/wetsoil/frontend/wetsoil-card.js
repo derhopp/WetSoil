@@ -237,11 +237,23 @@ class WetSoilCard extends HTMLElement {
        "Nonexistent local start time: skipped":"Nicht existierende lokale Startzeit übersprungen",
        "Start failed; actuators may remain on. Use explicit Stop or external controls.":"Start fehlgeschlagen; Aktor eventuell eingeschaltet. Bitte ausdrücklich stoppen oder extern bedienen.",
        "Interrupted run not resumed; external shutdown is the user's responsibility":"Unterbrochener Lauf nicht fortgesetzt; externe Abschaltung erforderlich",
-       "WetSoil unloaded; actuator state left unchanged. External safety required.":"Integration entladen; Aktor unverändert. Externe Absicherung erforderlich."
+       "WetSoil unloaded; actuator state left unchanged. External safety required.":"Integration entladen; Aktor unverändert. Externe Absicherung erforderlich.",
+       "Predecessor missing: automatic irrigation disabled":"Vorgänger fehlt: Automatische Bewässerung deaktiviert",
+       "Predecessor deleted: automatic irrigation disabled":"Vorgänger gelöscht: Automatische Bewässerung deaktiviert"
       } : {};
     const key=Object.keys(translations).find(k=>event.startsWith(k));
-    return key ? translations[key] + (event.slice(key.length).startsWith(": ") ?
-      event.slice(key.length) : this._humanize(event.slice(key.length))) : this._humanize(event);
+    if (!key) return this._humanize(event);
+    const detail = event.slice(key.length);
+    if (key==="WetSoil run stopped: " && detail==="complete") {
+      return translations[key]+(translations===undefined ? "Completed" :
+        (this._hass?.locale?.language?.startsWith("de") ||
+         this._hass?.language?.startsWith("de") ? "Regulär beendet" : "Completed"));
+    }
+    if (key==="WetSoil run stopped: " && detail==="manual_stop") {
+      return translations[key]+(this._hass?.locale?.language?.startsWith("de") ||
+        this._hass?.language?.startsWith("de") ? "Manueller Stopp" : "Manual stop");
+    }
+    return translations[key]+this._humanize(detail);
   }
   _scheduleText(code) {
     const lang = this._hass?.locale?.language?.startsWith("de") ||

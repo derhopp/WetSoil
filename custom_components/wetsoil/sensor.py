@@ -3,7 +3,7 @@ from homeassistant.components.sensor import SensorEntity
 from homeassistant.util import dt as dt_util
 from .schedule import next_scheduled
 from .entity import WetSoilEntity
-from .text_labels import language_for, status_text
+from .text_labels import event_text, language_for, status_text
 
 DESCRIPTIONS = {
     "status": ("State", None),
@@ -103,7 +103,10 @@ class WetSoilSensor(WetSoilEntity, SensorEntity):
         if key == "config":
             return "configured"
         if key == "events":
-            return circuit.events[-1] if circuit.events else None
+            return event_text(
+                circuit.events[-1] if circuit.events else None,
+                language_for(circuit.hass),
+            )
         return None
 
     @property
@@ -111,7 +114,13 @@ class WetSoilSensor(WetSoilEntity, SensorEntity):
         if self._key == "config":
             return {"settings": self.circuit.config}
         if self._key == "events":
-            return {"history": list(self.circuit.events)}
+            raw = list(self.circuit.events)
+            language = language_for(self.circuit.hass)
+            return {
+                "history": raw,
+                "translated_history": [event_text(item, language) for item in raw],
+                "raw_code": raw[-1] if raw else None,
+            }
         if self._key == "status":
             return {"raw_code": self.circuit.status}
         if self._key == "quality":

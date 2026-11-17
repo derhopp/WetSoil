@@ -159,3 +159,15 @@ test("live event subscription updates only its assigned circuit and unsubscribes
   handler({data:{entry_id:"test-2"}});
   assert.equal(refreshes,2);
 });
+
+
+test("approved event translations cover deleted/missing predecessors and stop reasons",()=>{
+  const Card=loadCard(), card=new Card();
+  card._hass={locale:{language:"de-DE"}};
+  assert.equal(card._eventText("Predecessor missing: automatic irrigation disabled"),
+    "Vorgänger fehlt: Automatische Bewässerung deaktiviert");
+  assert.equal(card._eventText("WetSoil run stopped: complete"),
+    "Bewässerung beendet: Regulär beendet");
+  assert.equal(card._eventText("Automatic watering skipped: automatic_disabled"),
+    "Automatischer Start übersprungen: Automatik deaktiviert");
+});
