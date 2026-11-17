@@ -244,14 +244,9 @@ class WetSoilCard extends HTMLElement {
     const key=Object.keys(translations).find(k=>event.startsWith(k));
     if (!key) return this._humanize(event);
     const detail = event.slice(key.length);
-    if (key==="WetSoil run stopped: " && detail==="complete") {
-      return translations[key]+(translations===undefined ? "Completed" :
-        (this._hass?.locale?.language?.startsWith("de") ||
-         this._hass?.language?.startsWith("de") ? "Regulär beendet" : "Completed"));
-    }
-    if (key==="WetSoil run stopped: " && detail==="manual_stop") {
-      return translations[key]+(this._hass?.locale?.language?.startsWith("de") ||
-        this._hass?.language?.startsWith("de") ? "Manueller Stopp" : "Manual stop");
+    if (key==="WetSoil run stopped: ") {
+      const endings = {complete:"Regulär beendet",manual_stop:"Manueller Stopp"};
+      return translations[key]+(endings[detail]||this._humanize(detail));
     }
     return translations[key]+this._humanize(detail);
   }
