@@ -1,87 +1,162 @@
-# WetSoil — Home Assistant irrigation integration
+# WetSoil
 
-WetSoil is a weather-dependent multi-circuit irrigation integration with a bundled custom Lovelace card.
+**Weather-aware irrigation for Home Assistant.** Schedule individual watering circuits, factor in weather and measured rainfall, and manage everything from a dedicated dashboard card.
 
-**EXPERIMENTAL — NOT APPROVED FOR UNATTENDED IRRIGATION.** Python tests, Home Assistant module imports and hassfest have passed CI. Real Home Assistant installations, hardware valve control, full chain operation, and browser compatibility have NOT been verified. HACS metadata validation has passed in recent CI runs.
+![WetSoil](custom_components/wetsoil/brand/icon.png)
 
-[Deutsch](docs/README.de.md) | [Architecture](docs/architecture.md)
+[![CI](https://github.com/derhopp/WetSoil/actions/workflows/checks.yml/badge.svg?branch=main)](https://github.com/derhopp/WetSoil/actions/workflows/checks.yml)
+[![Home Assistant](https://img.shields.io/badge/Home%20Assistant-2026.11%20tested-41BDF5)](https://www.home-assistant.io/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![Status: Experimental](https://img.shields.io/badge/Status-Experimental-orange.svg)](#project-status-and-safety)
 
-## Installation
+**Project status: Experimental.** The underlying irrigation calculation has been used privately and refined over many years, originally in Node-RED. **The Home Assistant integration is newer, partly AI-generated, and still under active testing.** It is not a certified irrigation controller or a substitute for independent actuator protection.
 
-1. In HACS, add https://github.com/derhopp/WetSoil as a custom repository of type Integration.
-2. Install the integration and restart Home Assistant.
-3. Go to Settings → Devices & services → Add integration → WetSoil.
-4. Enter a name and select an existing Area. Create one entry per circuit.
-5. With UI-managed Lovelace resources, WetSoil registers and cache-versions `/wetsoil/wetsoil-card.js` automatically. For YAML-managed resources, add the JavaScript module `/wetsoil/wetsoil-card.js` manually and reload resources. The bundled JS is not a separate repository.
-6. Add the custom:wetsoil-card from the Dashboard editor and select a circuit in its graphical editor.
+[Deutsch](docs/README.de.md) · [Architecture](docs/architecture.md) · [Issues and feature requests](https://github.com/derhopp/WetSoil/issues) · [CI checks](https://github.com/derhopp/WetSoil/actions)
 
-Installation is preliminary until tested with a running instance. Refresh the browser after frontend updates.
+## Highlights
 
-## Configuration
+- **One integration instance per watering circuit** — independent settings, Home Assistant device, entities and run state. Multiple circuits can use the same Weather Entity; valve switches must be assigned exclusively.
+- **Weather-informed watering** — daily maximum forecast temperature, today's forecast rain, optional rain binary sensor and actual precipitation history.
+- **Three measured-rain options** — daily rain-total sensor, cumulative rain counter or measured precipitation intensity integrated over the rolling last 72 hours.
+- **Flexible schedules and chaining** — allowed weekdays/months, local start time, linear successor chains and manual control.
+- **WetSoil dashboard card** — entity pickers, settings, forecast and history diagnostics, live multi-card synchronization, running countdown, readable German/English messages and reset of today's run marker.
+- **Native Home Assistant entities** — sensors, binary sensors, number controls, automatic-mode switch, buttons, start-time entity and precipitation-type selector.
+- **Transparent operating decisions** — weather factors, calculated duration versus actually planned duration, skipped attempts and actual starts are kept separate.
 
-All major settings can be edited in the WetSoil card; the Home Assistant Config Flow asks only Name and Area. A central versioned storage model persists configuration independently of dashboard layouts. The custom authenticated WebSocket API restricts modifications and watering actions to Home Assistant admins.
+> **Before connecting water hardware:** WetSoil does **not** implement an independent emergency or safety shutoff. A Home Assistant restart, software error or unreachable actuator can leave a valve on. Provide separate, tested fail-safe protection. See [Project status and safety](#project-status-and-safety).
 
-Defaults: automation off; base time 30 seconds; forecast rain limit 2 mm; historical average rain limit 2 mm/day; lower temperature 23 °C; upper 35 °C; max safety time 3600 s; Monday–Saturday; April–October; 08:00 start; no chain; no valves.
+## Install with Home Assistant Marketplace
 
-Different circuits can share one weather entity, but assigned valve switches must be exclusive. A linear chain has one absolute start and at most one predecessor/successor for each entry.
+WetSoil targets Home Assistant **2026.11** and later compatible versions. Home Assistant's built-in **Marketplace** replaces the former HACS experience. Until WetSoil appears in the public Marketplace catalog, add it **from its repository link**.
 
-## Weather and historical rainfall
+1. Open **Settings → Marketplace** in Home Assistant.
+2. Use the Marketplace option to **add from a link** and enter: **https://github.com/derhopp/WetSoil**. Select the integration source if prompted.
+3. Install WetSoil, then **restart Home Assistant**.
+4. Open **Settings → Devices & services → Add integration → WetSoil**.
+5. Enter the **circuit name** and choose a Home Assistant **Area**. Repeat for each additional circuit.
+6. Add the **WetSoil** dashboard card (`custom:wetsoil-card`) and choose the corresponding circuit in the card editor.
 
-Forecast selection now attempts a complete hourly forecast for the **entire current local calendar day** first; if hourly forecasts are unsupported or incomplete, it falls back to the provider's daily forecast. Both temperature and rain values are converted to °C and mm. Changing the selected Weather Entity invalidates the cache and requests the new provider immediately. Values are never retained from the previous provider. For hourly forecasts that begin only at the current hour, the daily fallback is intentionally used, since past hourly rain cannot be assumed zero.
+The card ships **inside this repository**; no separate card download is required. For dashboards with UI-managed resources, WetSoil automatically registers a cache-versioned JavaScript module. When resources are managed by YAML, add `/wetsoil/wetsoil-card.js` as a **JavaScript module** manually. Following an update, reload the browser/dashboard if it still shows an older card.
 
-Actual rainfall history comes only from a compatible selected sensor. Daily total and cumulative counter modes are supported. WetSoil maintains five-minute local samples and now attempts to backfill the previous three completed local days using **Home Assistant Recorder** when available. Recorder can store only state changes; a constant or infrequently updated sensor may not provide sufficient evidence of day-long coverage. Backfill is therefore accepted only for sufficiently dense, continuous, unit-consistent observations covering the local day's boundaries (including DST). Incomplete days, resets, unsupported units, missing Recorder and sensor changes are treated as unavailable, never zero. No forecast values are substituted for actual observations. The source of each accepted day is exposed in the WetSoil status API. If Recorder lacks complete samples, a multi-day warm-up remains necessary.
+**Existing HACS installations:** Update the integration through the installation mechanism available in your Home Assistant setup. WetSoil configuration is stored separately from the dashboard layout; you do not need to recreate your circuits just to upgrade.
 
-Current rain is evaluated from the weather entity and optional binary rain sensor; unknown sources never count as confirmed dry.
+## Configure your circuits
 
-## Node-RED algorithm
+The integration setup form intentionally asks for **name and Area only**. All irrigation settings are configured on the circuit's WetSoil card, with selected values also available through native Home Assistant entities. Each circuit is isolated from the others.
 
-Watering is weather-eligible ONLY IF observed three-day mean is strictly below its threshold, forecast daily precipitation is strictly below its threshold, daily maximum temperature is strictly greater than the lower threshold, and no rain is confirmed. A missing value is unavailable, not zero.
+| Setting | Default for **new** circuits | Notes |
+| --- | ---: | --- |
+| Automatic watering | Off | Turn on after configuring and checking the circuit |
+| Base watering duration | **1800 s (30 min)** | Weather algorithm adjusts this starting duration |
+| Maximum runtime | 3600 s (60 min) | Upper bound for a WetSoil-owned run, **not an external safety shutoff** |
+| Today's forecast rain limit | 2.00 mm | Watering blocked at or above the threshold |
+| Historical average rain limit | 2.00 mm/day | Based on valid measured precipitation |
+| Lower temperature threshold | 23.0 °C | Watering requires a higher temperature |
+| Upper temperature threshold | 35.0 °C | Temperature factor capped at 1.5 |
+| Allowed days | Monday–Saturday | Editable per circuit |
+| Allowed months | April–October | Editable per circuit |
+| Absolute start time | 08:00 | Local Home Assistant timezone |
+| Watering valves | None | Select one or more `switch` entities |
+| Predecessor | None | Optional for chained circuits |
+| Weather / rain sensors | None | Select suitable existing Home Assistant entities |
 
-Below the upper temperature threshold, temperature factor is 1 + (T - lower) / (2 * (upper - lower)); at or above it the factor is 1.5. Rainfall factors equal 1 - measured / threshold and 1 - forecast / threshold. The duration is JavaScript Math.round(base time * temperature factor * both rain factors), at least half the base time. The card distinguishes computed and effective scheduled duration, including calendar/automatic gates.
+**Changing the default to 1800 seconds affects newly created circuits only.** Already stored base-duration values remain unchanged on upgrade. Existing users can set **Base watering duration** in the card or the corresponding native number entity.
 
-## Safety and operating notes
+### Weather inputs
 
-Manual watering bypasses month, weekday and automatic-enabled restrictions; it does not bypass rain veto, the 3600-second default safety ceiling or occupied valves. Manual starts never trigger chains. Automatically skipped circuits forward their chains; manually stopped runs do not. Weather and external valve-state changes do not interrupt running cycles.
+Select a `weather` entity. WetSoil prefers a **complete hourly forecast for the entire current local calendar day**. If the provider does not support hourly forecasts or the hourly data cannot cover the complete day, it falls back to **daily** forecasts. Past hours are not silently treated as rain-free. Forecast values are converted to °C and mm where supported, and switching weather providers invalidates the previous provider's forecast cache.
 
-Valve commands are best-effort Home Assistant switch service calls. There are **no** automatic shutdown retries, hardware recovery attempts or actuator-state interventions outside WetSoil-owned runs. A successful service call does **not** prove the valve has physically closed. Provide your own external safety system. On restart, interrupted watering is not resumed and actuators are not modified.
+A `binary_sensor` reporting rain is **optional**. If it is configured, WetSoil compares its rain state with the Weather Entity. Unknown states or contradictory observations block **new** watering starts; they do not forcibly stop an already running circuit.
 
-## Known limitations
+### Measured precipitation: choose one source type
 
-- No successful end-to-end running Home Assistant / physical valve test.
-- Recorder backfill is conservative and requires sufficiently dense historical measurements. Missing, excluded or sparse Recorder data cannot be recovered. Forecast daily fallback is available; providers without a complete daily forecast still yield unavailable. UI-managed Lovelace resource registration and hash-based cache invalidation are supported; YAML resources still require explicit configuration.
-- Some native backend entity labels and diagnostics are still English.
-- Integration-level concurrency, daylight-saving-time and recovery testing remains incomplete.
-- HACS validation requires configuring the repository About description and Topics on GitHub (not files in this repository).
+Select a **precipitation sensor** and its **sensor type**:
 
-GitHub Actions check Python tests, source imports, frontend syntax, hassfest and HACS. See https://github.com/derhopp/WetSoil/actions. No tags/releases were created.
+| Sensor type | Typical sensor | Historical input |
+| --- | --- | --- |
+| **Daily** (`daily`) | Today's accumulated rainfall | Previous three **completed local calendar days** |
+| **Cumulative** (`total`) | Monotonically increasing rain total | Differences across the previous three completed local days |
+| **Intensity** (`intensity`) | Current precipitation rate, e.g. `mm/h` | **Exactly the previous rolling 72 elapsed hours** |
 
+For `daily` and `total`, WetSoil uses its own samples and attempts to backfill complete days from Home Assistant **Recorder**. Cumulative counter resets, missing periods, inconsistent units and insufficient coverage do not count as zero rain.
 
-## Actuator ownership (updated 2026-11-16)
+For `intensity`, WetSoil integrates the recorded rain rate over the last 72 elapsed hours, then divides the resulting total millimeters by three to obtain an equivalent mean in **mm/day**. Supported rate units include `mm/h`, `mm/d`, `cm/h`, `cm/d`, `in/h` and `in/d`. The fixed 72-hour window is independent of daylight-saving clock changes.
 
-WetSoil **does not perform independent safety shutdown**. The user must provide external hardware/automation protection against stuck valves, power loss, Home Assistant restarts or integration unloads. WetSoil **never switches actuators off while idle**, at integration startup/unload, on rain/state changes, or during recovery. Manual control outside WetSoil remains possible. WetSoil refuses to start its own run if an assigned switch already reports ON. For **its own started run only**, a completed countdown or explicit Stop issues one normal OFF command, without confirmation retries or safety lockouts. Unload cancels WetSoil's timer **without switching actuators off**. A partial start failure may leave an actuator ON; use explicit Stop or independent controls. Do not use unattended without independently verified fail-safe measures.
+**Recorded history matters:** Recorder must contain a valid state at the beginning of the requested period and valid readings throughout. Missing or invalid history produces an **unavailable** result rather than a false dry reading. The Card shows readable history diagnostics such as **“72-hour precipitation intensity history complete”**. With no precipitation sensor configured, historical rainfall cannot be established.
 
+## How watering is calculated
 
-### Measured precipitation intensity (rolling 72 hours)
+WetSoil ports a privately established Node-RED irrigation calculation. It checks for available data, no detected/uncertain rain, and these strict conditions:
 
-Under **Precipitation sensor type**, choose **Actual precipitation intensity (mm/h)** for a measured rain-rate entity. Supported units include `mm/h`, `mm/d`, `in/h`, `in/d`, `cm/h` and `cm/d`. WetSoil queries the Home Assistant Recorder for **exactly the previous 72 elapsed hours** and integrates the recorded rate over time (mm/h × hours) to find the rainfall total in mm. The weather algorithm receives one-third of that total as its average rainfall in mm/day. A sample's value is held until the next recorded change, as Recorder stores state changes rather than necessarily periodic samples.
+- **Forecast precipitation today** is below its configured daily limit.
+- **Measured historical average** is below its configured limit.
+- **Forecast daily maximum temperature** exceeds the lower threshold.
 
-This is separate from `daily` and `total` measurement modes, which continue to use completed local calendar days. Missing initial Recorder state, invalid readings, unavailable sensor, missing Recorder, or missing history yield **unavailable**, not a dry (zero rain) estimate. The card's History source status shows `intensity_72h_complete` when the rate history was usable. Rainfall history is measured data, not weather forecasts. Recorder data can be excluded by your Home Assistant configuration.
+When eligible, WetSoil combines a temperature factor with two rain factors:
 
-## Actual runs versus skipped automatic attempts
+`rain factor = 1 − rainfall / rainfall limit`
 
-From this version onward, a scheduled slot that was checked but did **not** start a valve is only a **skipped attempt**. Disabled automation, missing sensors/history, rain veto or ineligible weather do not mark that circuit as watered. An explicitly changed later HH:MM time may therefore run on the same day when the required gates become valid.
+`temperature factor = 1 + (temperature − lower limit) / (2 × (upper limit − lower limit))`, capped at **1.5** at/above the upper temperature threshold.
 
-The scheduler prevents repeated attempts for the **same exact local date and HH:MM**, while a successfully started automatic watering run is marked once per local day. A completed automatic run will not run again that day unless an administrator explicitly resets the status; this protection applies independently to chained circuits. Manual starts are visible as actual starts but do not consume the automatic day's allowance.
+`duration = round(base duration × temperature factor × today's rain factor × historical rain factor)`
 
-The card displays *Started today*, *Automatic run started today*, last real start, and the latest skip reason. Its **Reset today's run status** action clears the daily markers for the selected circuit without operating actuators or immediately triggering watering; the last actual start timestamp remains available as history. Reset is blocked during active or partly started WetSoil runs. A previously saved `last_attempt` from older versions is never treated as proof of irrigation.
+The duration is at least **half the base duration** when weather eligibility is satisfied, and the effective planned duration is additionally capped by **Maximum runtime**. With a new circuit's base duration of 1800 s, the half-base floor is **900 s**.
 
-Automatic watering can now be enabled while weather/history information is incomplete; the scheduler will skip the upcoming slot, recording its reason, rather than rejecting the configuration. Independent hardware safety remains the user's responsibility.
+Precipitation is **displayed and compared** at **two decimal places** and temperature at **one decimal place**. Configured thresholds use the same precision; raw Recorder samples are not rewritten. Missing readings stay unavailable, never automatically become zero.
 
+The dashboard distinguishes **weather-calculated duration** from **actually planned duration**, which also depends on automation, valves and calendar eligibility.
 
-## New native controls, precision and live UI
+## Scheduling, chaining and manual operation
 
-Additional Home Assistant entities are available for scheduled start time (`time`) and precipitation sensor type (`select`); the existing Number entities and configuration sensor share the same persisted backend configuration as the card. The stored settings have an explicit v2 schema marker while older configuration dictionaries are migrated by filling missing defaults. The custom card listens for `wetsoil_updated` events and displays a running countdown without affecting the backend timer. It cleans up listeners when removed from a dashboard.
+A circuit can start at an **absolute local time** on allowed days/months or **after another circuit**. Chains are linear: at most one successor per predecessor, with circular chains and shared valve assignments rejected.
 
-**Display/threshold precision:** Forecast and historical precipitation are rounded to 2 decimal places (mm) and temperature to 1 decimal place (°C). The watering algorithm rounds measured values **before** comparison to precipitation and temperature limits, so UI and threshold results agree. These are display/decision precision values; underlying Recorder samples retain their measured precision. A few significant boundary cases may therefore change compared with the previous full-precision comparisons.
+An automatic slot that was **skipped** because automation was disabled, conditions were unsuitable or sensor information was missing is **not** marked as watered. You may move the start time to a later valid time on the same day and enable automation. A successful **automatic start** is recorded as today's actual automatic run; another automatic run is blocked until the run marker is explicitly reset.
 
-The card translates known machine-readable status/error codes into German or English; native Status, Blocking reason and Weather quality sensors also display localized text, while retaining `raw_code` in their attributes for automation use. Unknown codes remain available unmodified for diagnosis.
+The dashboard shows the last actual start, whether the circuit ran today, the latest skipped attempt and its reason. **Reset today's run status** clears the relevant day's markers without operating any valve or starting an immediate run. Manual starts are recorded but do not consume the automatic daily allowance. A manual stop does **not** start the next circuit. Regular skipped automatic circuits may advance to their successor.
+
+The card receives live updates from Home Assistant and displays a countdown. This is **display only**: watering timers and commands run in the backend, independently of the browser.
+
+## Home Assistant entities and diagnostics
+
+Each configured circuit has its own device and entities, including:
+
+| Type | Purpose |
+| --- | --- |
+| `sensor` | Status, reason, temperature, today's precipitation, measured rain average, factors, duration, next start, configuration and recent events |
+| `binary_sensor` | Watering in progress, watering allowed, raining |
+| `number` | Base time, rain limits, temperature limits, maximum runtime |
+| `switch` | Automatic watering enabled/disabled |
+| `button` | Manual start and immediate stop |
+| `time` | Scheduled absolute start time |
+| `select` | Precipitation source type: daily, cumulative or intensity |
+
+Known status and rejection codes appear as readable English/German descriptions on the card. Selected native status sensors expose their underlying machine code as a `raw_code` attribute for diagnostics and automations. The interface updates multiple cards referring to the same circuit without a manual refresh.
+
+## Project status and safety
+
+**Experimental integration · Established private algorithm · AI-assisted implementation**
+
+- The **irrigation algorithm** has been used and refined privately over many years. This does **not** establish the reliability of every new Home Assistant integration feature.
+- The **Home Assistant integration** is experimental. It has automated unit tests, frontend tests, integration checks and Home Assistant runtime tests, with user-confirmed functional tests in a real Home Assistant installation. These do **not** constitute hardware certification or unattended-operation approval.
+- **AI disclosure:** A substantial portion of the integration source code, tests and documentation was created or modified with assistance from generative AI. Human review, testing and responsibility for operation remain essential.
+- **Independent actuator safety is mandatory for physical irrigation:** WetSoil sends a single Home Assistant `switch.turn_on` command for a WetSoil-owned run, waits for the configured duration, then sends one `switch.turn_off`. It does **not** require instantaneous ON feedback and does **not** retry emergency shutdowns, confirm physical valve closure or perform recovery-based safety intervention.
+- WetSoil **does not switch off externally controlled actuators** during idle operation or at integration startup/unload. An interrupted run is not resumed after a Home Assistant restart. A partial command failure may leave a switch on. Provide an independent tested shutdown mechanism for lost connectivity, power interruptions, stuck actuators and Home Assistant failures.
+
+**Start with virtual/test switches.** Do not connect an unattended pump or real irrigation valve until independent fail-safe measures have been tested.
+
+## Compatibility and known limitations
+
+- **Home Assistant:** Developed and CI-tested against Home Assistant **2026.11.0**. Compatibility with other releases and all weather providers is not guaranteed.
+- **Weather:** Some providers expose only future hourly slots; a complete daily forecast is then needed for valid today's precipitation.
+- **Recorder:** Historical measurements are accepted only when source and coverage are sufficient. The intensity mode requires usable recorded 72-hour data.
+- **Dashboard:** Automatic resource registration applies to **UI-managed Lovelace resources**. YAML-managed resources require manual registration. Concurrent edits to the same circuit in separate editor tabs have not been fully conflict-tested.
+- **Localization:** German and English are supported for known statuses and card messages; some uncommon upstream/Home Assistant errors may still show diagnostic detail.
+- **Scheduling and tests:** Additional timezone, chain-midnight, concurrency and hardware-in-the-loop scenarios remain under investigation. See the open Issues for exact scope.
+
+## Support, development and license
+
+Found a bug or missing feature? [Open a GitHub issue](https://github.com/derhopp/WetSoil/issues) with the WetSoil commit/version, Home Assistant version, affected circuit, reproduction steps, relevant entity states and log messages. **Never publish credentials or access tokens.**
+
+Development happens on [`main`](https://github.com/derhopp/WetSoil/tree/main). The integration manifest is prepared for **version 0.1.0**; an official tagged GitHub release is a separate publication step after acceptance checks.
+
+WetSoil is licensed under the [MIT License](LICENSE). Contributions, testing reports and constructive feedback are welcome.
