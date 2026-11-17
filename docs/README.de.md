@@ -17,7 +17,26 @@ Der in Home Assistant 2026.11 integrierte **Marketplace** ist der Nachfolger von
 5. Ausschließlich **Name** und einen vorhandenen **Bereich (Area)** auswählen. Pro Bewässerungskreis eine eigene Instanz anlegen.
 6. Im Dashboard die Card `custom:wetsoil-card` hinzufügen und die gewünschte Instanz auswählen.
 
-Die Card befindet sich im selben Repository und benötigt keine separate Installation. Bei über die Oberfläche verwalteten Dashboard-Ressourcen wird `/wetsoil/wetsoil-card.js` automatisch registriert und mit einer Cache-Version versehen. Für YAML-verwaltete Ressourcen muss die Datei weiterhin manuell als JavaScript-Modul registriert werden.
+Die Card befindet sich im selben Repository und benötigt keine separate Installation. Bei **über die Home-Assistant-Oberfläche verwalteten Dashboard-Ressourcen** registriert WetSoil das JavaScript-Modul beim Einrichten der Integration automatisch, prüft die Registrierung nach dem Home-Assistant-Start erneut und aktualisiert die Ressource bei Änderungen an der mitgelieferten Card.
+
+### Automatische Dashboard-Ressource
+
+| Ressourcenverwaltung | Verhalten |
+| --- | --- |
+| **Über Home Assistant verwaltet (Storage-Modus)** | WetSoil erstellt oder aktualisiert automatisch **genau einen** JavaScript-Modul-Eintrag; andere Ressourcen bleiben unverändert |
+| **YAML-verwaltet oder schreibgeschützt** | Keine automatische Änderung; Ressource muss **manuell** eingetragen werden |
+
+**Prüfung:** Nach Installation und Home-Assistant-Neustart in der Ressourcenverwaltung des Dashboards (sofern verfügbar) nach einem JavaScript-Modul suchen, dessen URL mit `/wetsoil/wetsoil-card.js` beginnt. Ein angehängtes `?v=...` ist korrekt und dient dazu, die Browser-Zwischenspeicherung bei Updates zu umgehen. Anschließend kann die Card direkt als `custom:wetsoil-card` hinzugefügt werden. **Kein zweiter manueller Eintrag** ist erforderlich.
+
+**Nur bei YAML-Verwaltung:** Die Ressource selbst als Modul eintragen, z. B.:
+
+```yaml
+resources:
+  - url: /wetsoil/wetsoil-card.js
+    type: module
+```
+
+Erscheint die Card als unbekanntes Custom-Element, zuerst prüfen, ob die WetSoil-Integration geladen ist, der Pfad erreichbar ist und der passende Ressourcenmodus verwendet wird. Danach Dashboard beziehungsweise Browser vollständig neu laden.
 
 ## Funktionen und Standardeinstellungen
 

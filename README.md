@@ -36,7 +36,26 @@ WetSoil targets Home Assistant **2026.11** and later compatible versions. Home A
 5. Enter the **circuit name** and choose a Home Assistant **Area**. Repeat for each additional circuit.
 6. Add the **WetSoil** dashboard card (`custom:wetsoil-card`) and choose the corresponding circuit in the card editor.
 
-The card ships **inside this repository**; no separate card download is required. For dashboards with UI-managed resources, WetSoil automatically registers a cache-versioned JavaScript module. When resources are managed by YAML, add `/wetsoil/wetsoil-card.js` as a **JavaScript module** manually. Following an update, reload the browser/dashboard if it still shows an older card.
+The card ships **inside this repository**; no separate card download or resource setup is required for UI-managed Lovelace resources. WetSoil registers its JavaScript module automatically on integration setup, retries registration at Home Assistant startup, and updates the existing URL when the bundled card changes. Following an integration upgrade, reload the dashboard/browser if it still shows an older card.
+
+### Dashboard resource registration
+
+| Dashboard resource configuration | What WetSoil does |
+| --- | --- |
+| **UI-managed resources (storage mode)** | Automatically creates or updates **one** JavaScript module resource, without changing unrelated entries |
+| **YAML-managed resources / read-only configuration** | Does not modify the configuration; **you must register the resource manually** |
+
+**Verify UI-managed registration:** After installing the integration and restarting Home Assistant, open your dashboard's resource management view (if available). There should be **one** JavaScript module entry whose URL begins with `/wetsoil/wetsoil-card.js`. The `?v=...` suffix is expected: it identifies the bundled JavaScript version for cache invalidation. You can then add `custom:wetsoil-card` to the dashboard; there is no separate frontend repository to install.
+
+**YAML fallback:** Add the module URL `/wetsoil/wetsoil-card.js` to your manually managed Lovelace resources, for example:
+
+```yaml
+resources:
+  - url: /wetsoil/wetsoil-card.js
+    type: module
+```
+
+If the card still reports an unknown custom element, check that the WetSoil integration is loaded, that the resource URL is reachable, and that your resource management mode matches the instructions above. Reload the dashboard/browser after correcting the entry. Do **not** add a second manual resource if an automatic WetSoil resource is already present.
 
 **Existing HACS installations:** Update the integration through the installation mechanism available in your Home Assistant setup. WetSoil configuration is stored separately from the dashboard layout; you do not need to recreate your circuits just to upgrade.
 
