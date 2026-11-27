@@ -38,8 +38,8 @@ def png_dimensions(path: Path) -> tuple[int, int]:
 
 def test_branding_pngs_are_valid_and_consistent():
     assert png_dimensions(ICON) == (128, 128)
-    assert png_dimensions(ROOT_LOGO) == (128, 128)
-    assert ICON.read_bytes() == ROOT_LOGO.read_bytes()
+    # The redundant root-level logo was intentionally removed after 0.1.2.
+    assert not ROOT_LOGO.exists(), "Duplicate logo in repository root"
     width, height = png_dimensions(DOC_LOGO)
     assert width == height and width >= 512
 
