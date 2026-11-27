@@ -1,4 +1,4 @@
-name: Publish WetSoil 0.1.2
+name: Publish WetSoil 0.1.3
 
 on:
   workflow_run:
@@ -9,7 +9,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: wetsoil-release-0.1.2
+  group: wetsoil-release-0.1.3
   cancel-in-progress: false
 
 jobs:
@@ -30,32 +30,32 @@ jobs:
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$TESTED_SHA"
-          test "$(python -c 'import json; print(json.load(open("custom_components/wetsoil/manifest.json"))["version"])')" = "0.1.2"
-          test -s RELEASE_NOTES_0.1.2.md
+          test "$(python -c 'import json; print(json.load(open("custom_components/wetsoil/manifest.json"))["version"])')" = "0.1.3"
+          test -s RELEASE_NOTES_0.1.3.md
           MAIN_SHA="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq .object.sha)"
           if [ "$MAIN_SHA" != "$TESTED_SHA" ]; then
             echo "main advanced after the checked commit; leaving release to the next successful run."
             echo "publish=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          if gh release view "0.1.2" >/dev/null 2>&1; then
-            echo "Release 0.1.2 already exists."
+          if gh release view "0.1.3" >/dev/null 2>&1; then
+            echo "Release 0.1.3 already exists."
             echo "publish=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/0.1.2" >/dev/null 2>&1; then
-            echo "::error::Tag 0.1.2 already exists without a matching release. Refusing to overwrite it."
+          if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/0.1.3" >/dev/null 2>&1; then
+            echo "::error::Tag 0.1.3 already exists without a matching release. Refusing to overwrite it."
             exit 1
           fi
           echo "publish=true" >> "$GITHUB_OUTPUT"
-      - name: Create tagged release 0.1.2
+      - name: Create tagged release 0.1.3
         if: steps.verify.outputs.publish == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TESTED_SHA: ${{ github.event.workflow_run.head_sha }}
         shell: bash
         run: |
-          gh release create "0.1.2" \
+          gh release create "0.1.3" \
             --target "$TESTED_SHA" \
-            --title "WetSoil 0.1.2 — Corrected branding" \
-            --notes-file RELEASE_NOTES_0.1.2.md
+            --title "WetSoil 0.1.3 — Transparent branding" \
+            --notes-file RELEASE_NOTES_0.1.3.md

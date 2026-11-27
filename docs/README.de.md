@@ -2,7 +2,7 @@
 
 <img src="wetsoil-logo.png" alt="WetSoil – Wassertropfen, Pflanze und Erde" width="180">
 
-Das WetSoil-Logo verbindet **Wasser** (blauer Tropfen), **Boden** (braune Erdschichten) und **Pflanzenwachstum** (grüner Keimling). Die freigegebene Grafik wird als Integrationsicon (`custom_components/wetsoil/brand/icon.png`) und als hochauflösendes Dokumentationsbild (`docs/wetsoil-logo.png`) verwendet. Die korrigierten Grafiken sind in **0.1.2** enthalten.
+Das WetSoil-Logo verbindet **Wasser** (blauer Tropfen), **Boden** (braune Erdschichten) und **Pflanzenwachstum** (grüner Keimling). Die freigegebene Grafik wird als Integrationsicon (`custom_components/wetsoil/brand/icon.png`) und als hochauflösendes Dokumentationsbild (`docs/wetsoil-logo.png`) verwendet. Die überarbeiteten Grafiken mit **transparentem Hintergrund** sind in **0.1.3** enthalten.
 
 **WetSoil** steuert unabhängige Bewässerungskreise anhand von Wetterprognosen, tatsächlich gemessenem Niederschlag und frei konfigurierbaren Zeitplänen. Die Einstellungen und die Überwachung erfolgen über eine mitgelieferte Dashboard-Card.
 
@@ -109,4 +109,4 @@ Vor Nutzung echter Pumpen oder Ventile müssen eine **unabhängige, getestete Ab
 
 Fehler und Verbesserungsvorschläge bitte mit Commit, HA-Version, Reproduktionsschritten und bereinigten Logmeldungen in den [GitHub-Issues](https://github.com/derhopp/WetSoil/issues) melden.
 
-Aktuelle Integrationsversion: **0.1.2**. Veröffentlichte Versionen und Änderungen stehen unter [GitHub Releases](https://github.com/derhopp/WetSoil/releases). Lizenz: [MIT](../LICENSE).
+Aktuelle Integrationsversion: **0.1.3**. Veröffentlichte Versionen und Änderungen stehen unter [GitHub Releases](https://github.com/derhopp/WetSoil/releases). Lizenz: [MIT](../LICENSE).

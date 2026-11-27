@@ -15,7 +15,7 @@
 
 ## Brand icon
 
-WetSoil's icon combines **water** (the blue droplet), **soil** (brown earth layers) and **plant growth** (green seedling). The same approved artwork is used for the integration icon (`custom_components/wetsoil/brand/icon.png`) and the documentation image (`docs/wetsoil-logo.png`). The corrected branding is included in **0.1.2**.
+WetSoil's icon combines **water** (the blue droplet), **soil** (brown earth layers) and **plant growth** (green seedling). The same approved artwork is used for the integration icon (`custom_components/wetsoil/brand/icon.png`) and the documentation image (`docs/wetsoil-logo.png`). The refined branding with a **transparent background** is included in **0.1.3**.
 
 ## Highlights
 
@@ -180,6 +180,6 @@ Known status and rejection codes appear as readable English/German descriptions 
 
 Found a bug or missing feature? [Open a GitHub issue](https://github.com/derhopp/WetSoil/issues) with the WetSoil commit/version, Home Assistant version, affected circuit, reproduction steps, relevant entity states and log messages. **Never publish credentials or access tokens.**
 
-Development happens on [`main`](https://github.com/derhopp/WetSoil/tree/main). The current integration release is **0.1.2**. See [GitHub Releases](https://github.com/derhopp/WetSoil/releases) for versioned downloads and release notes.
+Development happens on [`main`](https://github.com/derhopp/WetSoil/tree/main). The current integration release is **0.1.3**. See [GitHub Releases](https://github.com/derhopp/WetSoil/releases) for versioned downloads and release notes.
 
 WetSoil is licensed under the [MIT License](LICENSE). Contributions, testing reports and constructive feedback are welcome.
