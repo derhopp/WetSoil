@@ -2,7 +2,7 @@
 
 **Weather-aware irrigation for Home Assistant.** Schedule individual watering circuits, factor in weather and measured rainfall, and manage everything from a dedicated dashboard card.
 
-![WetSoil — water droplet, green seedling and soil](docs/wetsoil-logo.png?raw=1&v=2)
+<img src="docs/wetsoil-logo.png" alt="WetSoil — water droplet, green seedling and soil" width="180">
 
 [![CI](https://github.com/derhopp/WetSoil/actions/workflows/checks.yml/badge.svg?branch=main)](https://github.com/derhopp/WetSoil/actions/workflows/checks.yml)
 [![Home Assistant](https://img.shields.io/badge/Home%20Assistant-2026.11%20tested-41BDF5)](https://www.home-assistant.io/)
@@ -15,7 +15,7 @@
 
 ## Brand icon
 
-WetSoil's icon combines **water** (the blue droplet), **soil** (brown earth layers) and **plant growth** (green seedling). The illustration above is the corrected, user-supplied artwork. This image replaces the incorrect icon on `main` for review; the published **0.1.1** release is unchanged.
+WetSoil's icon combines **water** (the blue droplet), **soil** (brown earth layers) and **plant growth** (green seedling). The same approved artwork is used for the integration icon (`custom_components/wetsoil/brand/icon.png`) and the documentation image (`docs/wetsoil-logo.png`). The corrected branding is included in **0.1.2**.
 
 ## Highlights
 
@@ -180,6 +180,6 @@ Known status and rejection codes appear as readable English/German descriptions 
 
 Found a bug or missing feature? [Open a GitHub issue](https://github.com/derhopp/WetSoil/issues) with the WetSoil commit/version, Home Assistant version, affected circuit, reproduction steps, relevant entity states and log messages. **Never publish credentials or access tokens.**
 
-Development happens on [`main`](https://github.com/derhopp/WetSoil/tree/main). The current integration release is **0.1.1**. See [GitHub Releases](https://github.com/derhopp/WetSoil/releases) for versioned downloads and release notes.
+Development happens on [`main`](https://github.com/derhopp/WetSoil/tree/main). The current integration release is **0.1.2**. See [GitHub Releases](https://github.com/derhopp/WetSoil/releases) for versioned downloads and release notes.
 
 WetSoil is licensed under the [MIT License](LICENSE). Contributions, testing reports and constructive feedback are welcome.
