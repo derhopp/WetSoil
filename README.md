@@ -2,7 +2,7 @@
 
 **Weather-aware irrigation for Home Assistant.** Schedule individual watering circuits, factor in weather and measured rainfall, and manage everything from a dedicated dashboard card.
 
-![WetSoil — water, soil and seedling](custom_components/wetsoil/brand/icon.png)
+![WetSoil — water droplet, green seedling and soil](custom_components/wetsoil/brand/icon.png?raw=1&v=2)
 
 [![CI](https://github.com/derhopp/WetSoil/actions/workflows/checks.yml/badge.svg?branch=main)](https://github.com/derhopp/WetSoil/actions/workflows/checks.yml)
 [![Home Assistant](https://img.shields.io/badge/Home%20Assistant-2026.11%20tested-41BDF5)](https://www.home-assistant.io/)
@@ -15,7 +15,7 @@
 
 ## Brand icon
 
-WetSoil's new icon combines **water** (the blue droplet), **healthy soil** (brown earth layers) and **plant growth** (green seedling). The same icon is bundled with the Home Assistant integration and displayed above in this README. It replaces the initial branding starting with **0.1.1**.
+WetSoil's icon combines **water** (the blue droplet), **soil** (brown earth layers) and **plant growth** (green seedling). The illustration above is the corrected, user-supplied artwork. This image replaces the incorrect icon on `main` for review; the published **0.1.1** release is unchanged.
 
 ## Highlights
 

@@ -1,8 +1,8 @@
 # WetSoil – Wetterabhängige Bewässerung für Home Assistant
 
-![WetSoil – Wasser, Erde und Pflanze](../custom_components/wetsoil/brand/icon.png)
+![WetSoil – Wassertropfen, Pflanze und Erde](../custom_components/wetsoil/brand/icon.png?raw=1&v=2)
 
-Das neue WetSoil-Logo verbindet **Wasser** (blauer Tropfen), **Boden** (braune Erdschichten) und **Pflanzenwachstum** (grüner Keimling). Es wird seit **0.1.1** mit der Integration ausgeliefert.
+Das WetSoil-Logo verbindet **Wasser** (blauer Tropfen), **Boden** (braune Erdschichten) und **Pflanzenwachstum** (grüner Keimling). Das hier dargestellte Motiv stammt aus der vom Nutzer bereitgestellten, korrigierten Bilddatei. Es ersetzt das fehlerhafte Icon zunächst nur auf `main` zur Prüfung; das veröffentlichte Release **0.1.1** bleibt unverändert.
 
 **WetSoil** steuert unabhängige Bewässerungskreise anhand von Wetterprognosen, tatsächlich gemessenem Niederschlag und frei konfigurierbaren Zeitplänen. Die Einstellungen und die Überwachung erfolgen über eine mitgelieferte Dashboard-Card.
 
