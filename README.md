@@ -2,7 +2,7 @@
 
 **Weather-aware irrigation for Home Assistant.** Schedule individual watering circuits, factor in weather and measured rainfall, and manage everything from a dedicated dashboard card.
 
-![WetSoil — water droplet, green seedling and soil](custom_components/wetsoil/brand/icon.png?raw=1&v=2)
+![WetSoil — water droplet, green seedling and soil](docs/wetsoil-logo.png?raw=1&v=2)
 
 [![CI](https://github.com/derhopp/WetSoil/actions/workflows/checks.yml/badge.svg?branch=main)](https://github.com/derhopp/WetSoil/actions/workflows/checks.yml)
 [![Home Assistant](https://img.shields.io/badge/Home%20Assistant-2026.11%20tested-41BDF5)](https://www.home-assistant.io/)
