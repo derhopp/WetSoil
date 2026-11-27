@@ -2,7 +2,7 @@
 
 **Weather-aware irrigation for Home Assistant.** Schedule individual watering circuits, factor in weather and measured rainfall, and manage everything from a dedicated dashboard card.
 
-![WetSoil](custom_components/wetsoil/brand/icon.png)
+![WetSoil — water, soil and seedling](custom_components/wetsoil/brand/icon.png)
 
 [![CI](https://github.com/derhopp/WetSoil/actions/workflows/checks.yml/badge.svg?branch=main)](https://github.com/derhopp/WetSoil/actions/workflows/checks.yml)
 [![Home Assistant](https://img.shields.io/badge/Home%20Assistant-2026.11%20tested-41BDF5)](https://www.home-assistant.io/)
@@ -12,6 +12,10 @@
 **Project status: Experimental.** The underlying irrigation calculation has been used privately and refined over many years, originally in Node-RED. **The Home Assistant integration is newer, partly AI-generated, and still under active testing.** It is not a certified irrigation controller or a substitute for independent actuator protection.
 
 [Deutsch](docs/README.de.md) · [Architecture](docs/architecture.md) · [Issues and feature requests](https://github.com/derhopp/WetSoil/issues) · [CI checks](https://github.com/derhopp/WetSoil/actions)
+
+## Brand icon
+
+WetSoil's new icon combines **water** (the blue droplet), **healthy soil** (brown earth layers) and **plant growth** (green seedling). The same icon is bundled with the Home Assistant integration and displayed above in this README. It replaces the initial branding starting with **0.1.1**.
 
 ## Highlights
 
@@ -176,6 +180,6 @@ Known status and rejection codes appear as readable English/German descriptions 
 
 Found a bug or missing feature? [Open a GitHub issue](https://github.com/derhopp/WetSoil/issues) with the WetSoil commit/version, Home Assistant version, affected circuit, reproduction steps, relevant entity states and log messages. **Never publish credentials or access tokens.**
 
-Development happens on [`main`](https://github.com/derhopp/WetSoil/tree/main). The integration manifest is prepared for **version 0.1.0**; an official tagged GitHub release is a separate publication step after acceptance checks.
+Development happens on [`main`](https://github.com/derhopp/WetSoil/tree/main). The current integration release is **0.1.1**. See [GitHub Releases](https://github.com/derhopp/WetSoil/releases) for versioned downloads and release notes.
 
 WetSoil is licensed under the [MIT License](LICENSE). Contributions, testing reports and constructive feedback are welcome.

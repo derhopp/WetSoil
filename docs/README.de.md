@@ -1,5 +1,9 @@
 # WetSoil – Wetterabhängige Bewässerung für Home Assistant
 
+![WetSoil – Wasser, Erde und Pflanze](../custom_components/wetsoil/brand/icon.png)
+
+Das neue WetSoil-Logo verbindet **Wasser** (blauer Tropfen), **Boden** (braune Erdschichten) und **Pflanzenwachstum** (grüner Keimling). Es wird seit **0.1.1** mit der Integration ausgeliefert.
+
 **WetSoil** steuert unabhängige Bewässerungskreise anhand von Wetterprognosen, tatsächlich gemessenem Niederschlag und frei konfigurierbaren Zeitplänen. Die Einstellungen und die Überwachung erfolgen über eine mitgelieferte Dashboard-Card.
 
 **Status: Experimentell.** Der zugrunde liegende Bewässerungsalgorithmus wurde über viele Jahre privat verwendet und weiterentwickelt. Die Home-Assistant-Integration ist neu, wurde in erheblichem Umfang mit KI-Unterstützung erstellt und befindet sich weiterhin in der Erprobung. Sie ist **kein zertifizierter Bewässerungs- oder Sicherheitscontroller**.
@@ -105,4 +109,4 @@ Vor Nutzung echter Pumpen oder Ventile müssen eine **unabhängige, getestete Ab
 
 Fehler und Verbesserungsvorschläge bitte mit Commit, HA-Version, Reproduktionsschritten und bereinigten Logmeldungen in den [GitHub-Issues](https://github.com/derhopp/WetSoil/issues) melden.
 
-Die Integrationsversion ist für **0.1.0** vorbereitet; ein offizielles Release beziehungsweise ein Git-Tag ist ein gesonderter Schritt nach der Abnahme. Lizenz: [MIT](../LICENSE).
+Aktuelle Integrationsversion: **0.1.1**. Veröffentlichte Versionen und Änderungen stehen unter [GitHub Releases](https://github.com/derhopp/WetSoil/releases). Lizenz: [MIT](../LICENSE).
